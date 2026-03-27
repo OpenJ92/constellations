@@ -1,1 +1,2 @@
 typeclass-core==1.0.3
+numpy==2.4.3
