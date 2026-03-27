@@ -6,11 +6,12 @@ from typeclass.data.streamtree import StreamTree
 from typeclass.data.automorphism import Automorphism
 from typeclass.data.parser import Parser, char, none_of
 from typeclass.data.parser.lib import delay
-from typeclass.data.thunk import suspend
 from typeclass.data.tree import Tree, pretty
 from typeclass.data.sequence import Sequence, zipwith
+from typeclass.data.maybe import Just
+from typeclass.data.thunk import suspend
 from typeclass.interpret.run import run, evaluate
-from typeclass.typeclasses.symbols import fmap, pure, ap, compose, many, then, skip, otherwise
+from typeclass.typeclasses.symbols import fmap, pure, ap, compose, many, then, skip, otherwise, bind
 from typeclass.runtime.core import curry
 
 from lsystems.sentences.string import String
@@ -126,5 +127,16 @@ result = gen.run()
 # ============================================================
 
 tree = parser.run(result)[0][0]
-stree = evaluate(StreamTree |pure| 0)
+stree = evaluate(StreamTree |pure| None |fmap| (lambda _: random()))
 extracted = extract(tree, stree)
+
+
+# ============================================================
+# Lambda opacity issue with linked |bind| operations. Post 
+# recursion on Bind case suspend eval seems to fix problem
+# ============================================================
+expression = Just(10)                      \
+    |bind| evaluate(lambda x: Just(x + 10) \
+    |bind| evaluate(lambda y: Just(y + x)  \
+    |bind| evaluate(lambda z: (x, y, z))))
+
