@@ -48,8 +48,8 @@ def tree_parser():
     lbrack = token("[")
     rbrack = token("]")
 
-    leaf = (lbrack |then| rbrack)
-    branch = (lbrack |then| (Parser |many| delay(delayed_tree)) |skip| rbrack)
+    leaf   = lbrack |then| rbrack
+    branch = lbrack |then| (Parser |many| delay(delayed_tree)) |skip| rbrack
 
     leaf   = leaf   |fmap| (lambda _: Tree(None, Sequence([])))
     branch = branch |fmap| (lambda xs: Tree(None, Sequence(xs)))
