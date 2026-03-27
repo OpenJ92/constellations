@@ -3,7 +3,7 @@ from numpy.random import random
 
 from typeclass.data.stream import Stream, take
 from typeclass.data.automorphism import Automorphism
-from typeclass.data.parser import Parser, char
+from typeclass.data.parser import Parser, char, none_of
 from typeclass.data.parser.lib import delay
 from typeclass.data.thunk import suspend
 from typeclass.data.tree import Tree, pretty
@@ -30,18 +30,14 @@ vectors = Stream |pure| curry(lambda x, y: array((x, y))) |ap| widths |ap| heigh
 wectors = Stream |pure| curry(lambda x, y: array((x, y))) |ap| widths |ap| heights |fmap| Translate
 composed = Stream |pure| curry(lambda x, y: evaluate(x |compose| y)) |ap| vectors |ap| wectors
 
-def sep_by1(p, sep):
-    return (
-        (Parser |pure| (lambda x: lambda xs: [x] + xs))
-        |ap| p
-        |ap| (Parser |many| (sep |then| p))
-    )
-
-def sep_by(p, sep):
-    return sep_by1(p, sep) |otherwise| (Parser |pure| [])
-
 def delay(f):
     return Parser(lambda s: evaluate(f()).run(s))
+
+def junk():
+    return Parser |many| none_of("[]")
+
+def token(c):
+    return junk() |then| char(c)
 
 def tree_parser():
     tree = None
@@ -49,21 +45,23 @@ def tree_parser():
     def delayed_tree():
         return tree
 
-    leaf = (char("[") |then| char("]"))
-    children = sep_by(delay(delayed_tree), char(","))
-    branch = (char("[") |then| children |skip| char("]"))
+    lbrack = token("[")
+    rbrack = token("]")
 
-    leaf   =   leaf |fmap| (lambda _: Tree(None, Sequence([])))
+    leaf = (lbrack |then| rbrack)
+    branch = (lbrack |then| (Parser |many| delay(delayed_tree)) |skip| rbrack)
+
+    leaf   = leaf   |fmap| (lambda _: Tree(None, Sequence([])))
     branch = branch |fmap| (lambda xs: Tree(None, Sequence(xs)))
 
     tree = leaf |otherwise| branch
     return tree
 
 parser = evaluate(tree_parser())
-results = parser.run("[[[[[[]],[]],[[[],[]],[]]],[[[],[[]]],[[],[]]]],[[[],[]],\
-                      [[[[]],[]],[[],[[],[]]]]],[],[[[[],[]],[[[]],[]]],[[[],[[\
-                      ],[]]],[]]],[[],[[[],[]],[[[]],[[],[]]]]],[[[[[]]],[]],[[\
-                      ],[[],[[[]],[]]]]]]")
+results = parser.run("[[[[[[]][]][[[][]][]]C][[[][[]]][[][]]]][[[][]]\
+                      [[[[]][]][[][[][A]]]]][][[[[][]][[[]][]]][[[][[\
+                      ][]]][]]][[][[[][]][[B[]][[][]]]]][[[[[]]][]][[\
+                      ][Q[][[[]][]]]]]]")
 
 tree = evaluate(results[0][0] |fmap| (lambda _: random()))
 
