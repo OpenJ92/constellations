@@ -2,12 +2,13 @@ from numpy import array, pi
 from numpy.random import random
 
 from typeclass.data.stream import Stream, take
+from typeclass.data.streamtree import StreamTree
 from typeclass.data.automorphism import Automorphism
 from typeclass.data.parser import Parser, char, none_of
 from typeclass.data.parser.lib import delay
 from typeclass.data.thunk import suspend
 from typeclass.data.tree import Tree, pretty
-from typeclass.data.sequence import Sequence
+from typeclass.data.sequence import Sequence, zipwith
 from typeclass.interpret.run import run, evaluate
 from typeclass.typeclasses.symbols import fmap, pure, ap, compose, many, then, skip, otherwise
 from typeclass.runtime.core import curry
@@ -23,6 +24,10 @@ from lsystems.productions.productions import Productions
 from lsystems.lsystem import LSystem
 from lsystems.generate import Generate
 
+
+# ============================================================
+# Morphism Generation over Stream
+# ============================================================
 
 widths  = Stream |pure| None |fmap| (lambda _: random())
 heights = Stream |pure| None |fmap| (lambda _: random()*2*pi)
@@ -41,6 +46,10 @@ class Translate(Automorphism):
 vectors  = Stream |pure| curry(lambda x, y: array((x, y))) |ap| widths |ap| heights |fmap| Translate
 wectors  = Stream |pure| curry(lambda x, y: array((x, y))) |ap| widths |ap| heights |fmap| Translate
 composed = Stream |pure| curry(lambda x, y: evaluate(x |compose| y)) |ap| vectors |ap| wectors
+
+# ============================================================
+# L-System tree topology Parser 
+# ============================================================
 
 def delay(f):
     return Parser(lambda s: evaluate(f()).run(s))
@@ -71,6 +80,13 @@ def tree_parser():
 
 parser = evaluate(tree_parser())
 
+# ============================================================
+# Tree topology L-System Spec
+# ============================================================
+
+def length(sequence):
+    return len(sequence._values)
+
 def extract(shape, st):
     children = shape.children
     n = length(children)
@@ -78,24 +94,37 @@ def extract(shape, st):
 
     return Tree(
         st.value,
-        zip_with(extract, children, st_children)
+        Sequence(zipwith(extract, children, st_children))
     )
 
 # Start symbol
-sentence = String("X")
+sentence = String("[X]")
 
 # Productions (deterministic)
 productions = Productions(String)
-productions.add("X", Static(String("F+[[X]-X]-F[-FX]+X")))
-productions.add("F", Static(String("FF")))
 
-# Alphabet includes every symbol we might emit
-alphabet = set("FX+-[]")
+stochastic = Stochastic()
+stochastic.add(10, Static(String("[]")))
+stochastic.add(10, Static(String("[X]")))
+stochastic.add(10, Static(String("X[X]")))
+stochastic.add(10, Static(String("[X]X")))
+stochastic.add(10, Static(String("[X][X]")))
+stochastic.add(10, Static(String("X[X]X")))
+stochastic.add(10, Static(String("[X[X]]")))
+stochastic.add(10, Static(String("[X][[X]]")))
 
+productions.add("X", stochastic)
+
+alphabet = set("X[]")
 lsys = LSystem(alphabet, productions, sentence)
+gen = Generate(lsys, depth=5)
 
-gen = Generate(lsys, depth=6)
 result = gen.run()
 
-results = parser.run(result)
-tree = evaluate(results[0][0] |fmap| (lambda _: random()))
+# ============================================================
+# Morphism generation over StreamTree and extraction
+# ============================================================
+
+tree = parser.run(result)[0][0]
+stree = evaluate(StreamTree |pure| 0)
+extracted = extract(tree, stree)
