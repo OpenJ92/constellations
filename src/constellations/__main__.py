@@ -1,5 +1,5 @@
 from hashlib import sha256
-from numpy import array, pi
+from numpy import array, pi, exp
 from numpy.random import random, default_rng
 
 from typeclass.data.stream import Stream, take
@@ -75,7 +75,6 @@ branch = lbrack |then| (Parser |many| delay(_tree)) |skip| rbrack
 leaf   = leaf   |fmap| (lambda _: Tree(None, Sequence([])))
 branch = branch |fmap| (lambda xs: Tree(None, Sequence(xs)))
 tree   = leaf |otherwise| branch
-tree   = leaf |otherwise| branch
 
 parser = evaluate(tree)
 
@@ -115,7 +114,7 @@ productions.add("X", stochastic)
 
 alphabet = set("X[]")
 lsys = LSystem(alphabet, productions, sentence)
-gen = Generate(lsys, depth=5)
+gen = Generate(lsys, depth=6)
 
 result = gen.run()
 
@@ -134,20 +133,62 @@ def path_random(seed=0):
         return rng.random()
     return f
 
+
 def ascending_random_tree():
+    r = path_random()
+    return evaluate(paths() |fmap| (lambda p: sum(r(p[:i]) for i in range(len(p) + 1))))
+extracted_ = extract(tree, ascending_random_tree())
+
+
+def segment_length_tree(alpha: float = 0.7, floor: float = 0.1):
+    r = path_random()
+    return evaluate(paths() |fmap| (lambda p: floor + (1.0 - floor) * r(p) / (1 + len(p))**alpha))
+lengths = extract(tree, segment_length_tree())
+pretty(lengths)
+
+
+def segment_length_tree_(alpha: float = 0.7):
+    r = path_random()
+    return evaluate(paths() |fmap| (lambda p: r(p) / (1 + len(p))**alpha))
+lengths_ = extract(tree, segment_length_tree_())
+pretty(lengths_)
+
+
+def ascending_segment_length_tree(alpha: float = 0.7, floor: float = 0.0):
     r = path_random()
 
     return evaluate(
         paths() |fmap| (
-            lambda p: sum(r(p[:i]) for i in range(len(p) + 1))
+            lambda p: sum(
+                floor + (1.0 - floor) * r(p[:i]) / (1 + i)**alpha
+                for i in range(1, len(p) + 1)
+            )
         )
     )
-extracted_ = extract(tree, ascending_random_tree())
+_lengths = extract(tree, ascending_segment_length_tree())
+pretty(_lengths)
+
+
+def ascending_segment_length_tree_(alpha: float = 0.7):
+    r = path_random()
+
+    return evaluate(
+        paths() |fmap| (
+            lambda p: 1.0 - exp(-sum(
+                r(p[:i]) / (1 + i)**alpha
+                for i in range(1, len(p) + 1)
+            ))
+        )
+    )
+_lengths_ = extract(tree, ascending_segment_length_tree_())
+pretty(_lengths_)
+
 
 # ============================================================
 # Lambda opacity issue with linked |bind| operations. Post 
 # recursion on Bind case suspend eval seems to fix problem
 # ============================================================
+
 expression = Just(10)                      \
     |bind| evaluate(lambda x: Just(x + 10) \
     |bind| evaluate(lambda y: Just(y + x)  \
