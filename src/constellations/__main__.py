@@ -1,8 +1,9 @@
+from hashlib import sha256
 from numpy import array, pi
-from numpy.random import random
+from numpy.random import random, default_rng
 
 from typeclass.data.stream import Stream, take
-from typeclass.data.streamtree import StreamTree
+from typeclass.data.streamtree import StreamTree, paths, coordinates, depths
 from typeclass.data.automorphism import Automorphism
 from typeclass.data.parser import Parser, char, none_of
 from typeclass.data.parser.lib import delay
@@ -61,25 +62,22 @@ def junk():
 def token(c):
     return junk() |then| char(c)
 
-def tree_parser():
-    tree = None
 
-    def _tree():
-        return tree
-
-    lbrack = token("[")
-    rbrack = token("]")
-
-    leaf   = lbrack |then| rbrack
-    branch = lbrack |then| (Parser |many| delay(_tree)) |skip| rbrack
-
-    leaf   = leaf   |fmap| (lambda _: Tree(None, Sequence([])))
-    branch = branch |fmap| (lambda xs: Tree(None, Sequence(xs)))
-    tree = leaf |otherwise| branch
-
+def _tree():
     return tree
 
-parser = evaluate(tree_parser())
+lbrack = token("[")
+rbrack = token("]")
+
+leaf   = lbrack |then| rbrack
+branch = lbrack |then| (Parser |many| delay(_tree)) |skip| rbrack
+
+leaf   = leaf   |fmap| (lambda _: Tree(None, Sequence([])))
+branch = branch |fmap| (lambda xs: Tree(None, Sequence(xs)))
+tree   = leaf |otherwise| branch
+tree   = leaf |otherwise| branch
+
+parser = evaluate(tree)
 
 # ============================================================
 # Tree topology L-System Spec
@@ -105,7 +103,6 @@ sentence = String("[X]")
 productions = Productions(String)
 
 stochastic = Stochastic()
-stochastic.add(10, Static(String("[]")))
 stochastic.add(10, Static(String("[X]")))
 stochastic.add(10, Static(String("X[X]")))
 stochastic.add(10, Static(String("[X]X")))
@@ -127,9 +124,25 @@ result = gen.run()
 # ============================================================
 
 tree = parser.run(result)[0][0]
-stree = evaluate(StreamTree |pure| None |fmap| (lambda _: random()))
+stree = evaluate(paths())
 extracted = extract(tree, stree)
 
+def path_random(seed=0):
+    def f(p):
+        h = sha256((str(p) + str(seed)).encode()).digest()
+        rng = default_rng(int.from_bytes(h[:8], "little"))
+        return rng.random()
+    return f
+
+def ascending_random_tree():
+    r = path_random()
+
+    return evaluate(
+        paths() |fmap| (
+            lambda p: sum(r(p[:i]) for i in range(len(p) + 1))
+        )
+    )
+extracted_ = extract(tree, ascending_random_tree())
 
 # ============================================================
 # Lambda opacity issue with linked |bind| operations. Post 
