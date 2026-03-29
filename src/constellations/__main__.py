@@ -1,9 +1,11 @@
 from hashlib import sha256
-from numpy import array, pi, exp
+from numpy import array, pi, exp, cos, sin
 from numpy.random import random, default_rng
+from numpy.linalg import norm
 
-from typeclass.data.stream import Stream, take
+from typeclass.data.stream import Stream, take, iterate
 from typeclass.data.streamtree import StreamTree, paths, coordinates, depths
+from typeclass.data.morphism import Morphism
 from typeclass.data.automorphism import Automorphism
 from typeclass.data.parser import Parser, char, none_of
 from typeclass.data.parser.lib import delay
@@ -42,7 +44,7 @@ class Translate(Automorphism):
         return self.vector + x
 
     def _inv(self):
-        return -1*self.vector
+        return Translate(-1*self.vector)
 
 
 vectors  = Stream |pure| curry(lambda x, y: array((x, y))) |ap| widths |ap| heights |fmap| Translate
@@ -114,7 +116,7 @@ productions.add("X", stochastic)
 
 alphabet = set("X[]")
 lsys = LSystem(alphabet, productions, sentence)
-gen = Generate(lsys, depth=6)
+gen = Generate(lsys, depth=7)
 
 result = gen.run()
 
@@ -137,21 +139,16 @@ def path_random(seed=0):
 def ascending_random_tree():
     r = path_random()
     return evaluate(paths() |fmap| (lambda p: sum(r(p[:i]) for i in range(len(p) + 1))))
-extracted_ = extract(tree, ascending_random_tree())
 
 
 def segment_length_tree(alpha: float = 0.7, floor: float = 0.1):
     r = path_random()
     return evaluate(paths() |fmap| (lambda p: floor + (1.0 - floor) * r(p) / (1 + len(p))**alpha))
-lengths = extract(tree, segment_length_tree())
-pretty(lengths)
 
 
 def segment_length_tree_(alpha: float = 0.7):
     r = path_random()
     return evaluate(paths() |fmap| (lambda p: r(p) / (1 + len(p))**alpha))
-lengths_ = extract(tree, segment_length_tree_())
-pretty(lengths_)
 
 
 def ascending_segment_length_tree(alpha: float = 0.7, floor: float = 0.0):
@@ -165,8 +162,6 @@ def ascending_segment_length_tree(alpha: float = 0.7, floor: float = 0.0):
             )
         )
     )
-_lengths = extract(tree, ascending_segment_length_tree())
-pretty(_lengths)
 
 
 def ascending_segment_length_tree_(alpha: float = 0.7):
@@ -180,9 +175,133 @@ def ascending_segment_length_tree_(alpha: float = 0.7):
             ))
         )
     )
-_lengths_ = extract(tree, ascending_segment_length_tree_())
-pretty(_lengths_)
 
+
+class SmoothWindow(Morphism):
+    def __init__(self, center, width):
+        if width <= 0:
+            raise ValueError("width must be positive.")
+        self.start = center - width / 2
+        self.end = center + width / 2
+
+    def _run(self, x):
+        t = (x - self.start) / (self.end - self.start)
+        if t < 0:
+            t = 0.0
+        elif t > 1:
+            t = 1.0
+        return t * t * (3 - 2 * t)
+
+class LinearWindow(Morphism):
+    def __init__(self, center, width):
+        if width <= 0:
+            raise ValueError("width must be positive.")
+        self.start = center - width / 2
+        self.end = center + width / 2
+
+    def _run(self, x):
+        t = (x - self.start) / (self.end - self.start)
+        if t < 0:
+            return 0.0
+        if t > 1:
+            return 1.0
+        return t
+
+class SmoothInterval(Morphism):
+    def __init__(self, start, end):
+        if start == end:
+            raise ValueError("start and end must differ.")
+        self.start = start
+        self.end = end
+
+    def _run(self, x):
+        t = (x - self.start) / (self.end - self.start)
+        if t < 0:
+            t = 0.0
+        elif t > 1:
+            t = 1.0
+        return t * t * (3 - 2 * t)
+
+class LinearInterval(Morphism):
+    def __init__(self, start, end):
+        if start == end:
+            raise ValueError("start and end must differ.")
+        self.start = start
+        self.end = end
+
+    def _run(self, x):
+        t = (x - self.start) / (self.end - self.start)
+        if t < 0:
+            return 0.0
+        if t > 1:
+            return 1.0
+        return t
+
+class SigmoidInterval(Morphism):
+    def __init__(self, center, sharpness=10.0):
+        self.center = center
+        self.sharpness = sharpness
+
+    def _run(self, x):
+        return 1.0 / (1.0 + exp(-self.sharpness * (x - self.center)))
+
+
+centers   = ascending_segment_length_tree_()
+sharpness = StreamTree |pure| None |fmap| (lambda _: random()) |fmap| (lambda x: 1000*x)
+sigmoids  = StreamTree |pure| curry(SigmoidInterval) |ap| centers |ap| sharpness
+_lengths_ = extract(tree, evaluate(sigmoids))
+
+evaluated_sigmoids = sigmoids |fmap| (lambda function: function(1))
+evaluates = extract(tree, evaluate(evaluated_sigmoids))
+
+centers = ascending_segment_length_tree_()
+widths  = StreamTree |pure| None |fmap| (lambda _: random()) |fmap| (lambda x: 1/1000*x)
+smooth  = StreamTree |pure| curry(SmoothWindow) |ap| centers |ap| widths
+
+evaluated_smooths = smooth |fmap| (lambda function: function(1))
+evaluates = extract(tree, evaluate(evaluated_smooths))
+pretty(evaluates)
+
+centers = ascending_segment_length_tree_()
+widths  = StreamTree |pure| None |fmap| (lambda _: random()) |fmap| (lambda x: 1/1000*x)
+linear  = StreamTree |pure| curry(LinearWindow) |ap| centers |ap| widths
+
+evaluated_linears = linear |fmap| (lambda function: function(0))
+evaluates = extract(tree, evaluate(evaluated_linears))
+pretty(evaluates)
+
+infinite_trees = iterate(lambda x: x + .0001, 0) |fmap| (lambda value: linear |fmap| (lambda f: f(value)))
+infinite_trees = evaluate(infinite_trees)
+
+class Matrix(Morphism):
+    def __init__(self, matrix):
+        self.matrix = matrix
+
+    def _run(self, x):
+        return self.matrix @ x
+
+
+class Rotation3D(Automorphism):
+    def __init__(self, axis, angle):
+        axis = array(axis, dtype=float)
+        n = norm(axis)
+        if n == 0:
+            raise ValueError("Rotation axis must be non-zero.")
+        self.axis = axis / n
+        self.angle = angle
+
+    def _run(self, x):
+        k = self.axis
+        theta = self.angle
+
+        return (
+            x * cos(theta)
+            + cross(k, x) * sin(theta)
+            + k * dot(k, x) * (1 - cos(theta))
+        )
+
+    def _inv(self):
+        return Rotation3D(self.axis, -self.angle)
 
 # ============================================================
 # Lambda opacity issue with linked |bind| operations. Post 
