@@ -303,6 +303,9 @@ class Rotation3D(Automorphism):
     def _inv(self):
         return Rotation3D(self.axis, -self.angle)
 
+## Target expression.
+## ((switch >>> scale >>> Rotation3D(axis)) &&& line) >>> app
+
 # ============================================================
 # Lambda opacity issue with linked |bind| operations. Post 
 # recursion on Bind case suspend eval seems to fix problem
