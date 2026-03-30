@@ -343,80 +343,38 @@ def path_random(seed=0):
     return f
 
 
-def radius_for_depth(
-    depth: int,
-    base_radius: float = 1.0,
-    alpha: float = 0.8,
-) -> float:
+def radius_for_depth( depth: int, base_radius: float = 1.0, alpha: float = 0.8,) -> float:
     return base_radius / (1 + depth) ** alpha
 
 
-def angle_for_prefix(
-    prefix: tuple[int, ...],
-    angle_seed: int = 0,
-) -> float:
+def angle_for_prefix( prefix: tuple[int, ...], angle_seed: int = 0,) -> float:
     r = path_random(angle_seed)
     return 2 * pi * r(prefix)
 
 
-def offset_for_prefix(
-    prefix: tuple[int, ...],
-    base_radius: float = 1.0,
-    alpha: float = 0.8,
-    angle_seed: int = 0,
-):
+def offset_for_prefix(prefix: tuple[int, ...], base_radius: float = 1.0, alpha: float = 0.8, angle_seed: int = 0,):
     depth = len(prefix) - 1
-    radius = radius_for_depth(
-        depth,
-        base_radius=base_radius,
-        alpha=alpha,
-    )
-    angle = angle_for_prefix(
-        prefix,
-        angle_seed=angle_seed,
-    )
+    radius = radius_for_depth( depth, base_radius=base_radius, alpha=alpha,)
+    angle = angle_for_prefix( prefix, angle_seed=angle_seed,)
 
-    return array((
-        radius * cos(angle),
-        radius * sin(angle),
-    ))
+    return array(( radius * cos(angle), radius * sin(angle),))
 
 
-def make_offset_from_path(
-    base_radius: float = 1.0,
-    alpha: float = 0.8,
-    angle_seed: int = 0,
-):
+def make_offset_from_path( base_radius: float = 1.0, alpha: float = 0.8, angle_seed: int = 0,):
     @lru_cache(maxsize=None)
     def offset_from_path(p: tuple[int, ...]):
         if len(p) == 0:
             return array((0.0, 0.0))
 
         parent = p[:-1]
-        return (
-            offset_from_path(parent)
-            + offset_for_prefix(
-                p,
-                base_radius=base_radius,
-                alpha=alpha,
-                angle_seed=angle_seed,
-            )
-        )
+        return (offset_from_path(parent) \
+         + offset_for_prefix( p, base_radius=base_radius, alpha=alpha, angle_seed=angle_seed,))
 
     return offset_from_path
 
 
-def lighthouse_centers(
-    root,
-    base_radius: float = 1.0,
-    alpha: float = 0.8,
-    angle_seed: int = 0,
-):
-    offset_from_path = make_offset_from_path(
-        base_radius=base_radius,
-        alpha=alpha,
-        angle_seed=angle_seed,
-    )
+def lighthouse_centers( root, base_radius: float = 1.0, alpha: float = 0.8, angle_seed: int = 0,):
+    offset_from_path = make_offset_from_path( base_radius=base_radius, alpha=alpha, angle_seed=angle_seed,)
 
     return StreamTree \
         |pure| curry(lambda root_, offset: root_ + offset) \
@@ -425,13 +383,9 @@ def lighthouse_centers(
                         
 root = array((0.0, 0.0))
 
-centers = lighthouse_centers(
-    root=root,
-    base_radius=1.0,
-    alpha=0.8,
-    angle_seed=3,
-) |fmap| (lambda pair: array([*pair, 0])) \
-  |fmap| (((Morphism |arrow| inverse) |compose| Translate) |fanout| (Morphism, Translate))
+centers = lighthouse_centers( root=root, base_radius=1.0, alpha=0.8, angle_seed=3,
+ ) |fmap| (lambda pair: array([*pair, 0])) \
+   |fmap| (((Morphism |arrow| inverse) |compose| Translate) |fanout| (Morphism, Translate))
 
 realized_centers = extract(tree, evaluate(centers))
 
