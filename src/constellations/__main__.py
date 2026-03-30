@@ -14,7 +14,7 @@ from typeclass.data.sequence import Sequence, zipwith
 from typeclass.data.maybe import Just
 from typeclass.data.thunk import suspend
 from typeclass.interpret.run import run, evaluate
-from typeclass.typeclasses.symbols import fmap, pure, ap, compose, many, then, skip, otherwise, bind
+from typeclass.typeclasses.symbols import fmap, pure, ap, compose, rcompose, many, then, skip, otherwise, bind, arrow
 from typeclass.runtime.core import curry
 
 from lsystems.sentences.string import String
@@ -105,6 +105,7 @@ productions = Productions(String)
 
 stochastic = Stochastic()
 stochastic.add(10, Static(String("[X]")))
+stochastic.add(10, Static(String("[[X]]")))
 stochastic.add(10, Static(String("X[X]")))
 stochastic.add(10, Static(String("[X]X")))
 stochastic.add(10, Static(String("[X][X]")))
@@ -255,23 +256,33 @@ evaluated_sigmoids = sigmoids |fmap| (lambda function: function(1))
 evaluates = extract(tree, evaluate(evaluated_sigmoids))
 
 centers = ascending_segment_length_tree_()
-widths  = StreamTree |pure| None |fmap| (lambda _: random()) |fmap| (lambda x: 1/1000*x)
+widths  = StreamTree |pure| None |fmap| (lambda _: random()) |fmap| (lambda x: 1/5*x)
 smooth  = StreamTree |pure| curry(SmoothWindow) |ap| centers |ap| widths
 
 evaluated_smooths = smooth |fmap| (lambda function: function(1))
 evaluates = extract(tree, evaluate(evaluated_smooths))
-pretty(evaluates)
 
 centers = ascending_segment_length_tree_()
-widths  = StreamTree |pure| None |fmap| (lambda _: random()) |fmap| (lambda x: 1/1000*x)
+widths  = StreamTree |pure| None |fmap| (lambda _: random()) |fmap| (lambda x: 1/50*x)
 linear  = StreamTree |pure| curry(LinearWindow) |ap| centers |ap| widths
 
 evaluated_linears = linear |fmap| (lambda function: function(0))
 evaluates = extract(tree, evaluate(evaluated_linears))
-pretty(evaluates)
 
-infinite_trees = iterate(lambda x: x + .0001, 0) |fmap| (lambda value: linear |fmap| (lambda f: f(value)))
+infinite_trees = iterate(lambda x: x + .01, 0) |fmap| (lambda value: smooth |fmap| (lambda f: f(value)))
 infinite_trees = evaluate(infinite_trees)
+
+# from time import sleep
+# values = infinite_trees
+# for t in range(100):
+#     
+#     print("\033[2J\033[H", end="")
+#     head   = values.head
+#     values = values.tail.force()
+# 
+#     pretty(extract(tree, head))
+#     print(f"{t+1} of 100 frames")
+#     sleep(0.1)
 
 class Matrix(Morphism):
     def __init__(self, matrix):
@@ -303,15 +314,32 @@ class Rotation3D(Automorphism):
     def _inv(self):
         return Rotation3D(self.axis, -self.angle)
 
+axes = StreamTree |pure| None |fmap| (lambda _: random((3,)) - array([.5, .5, .5]))
+rotates = StreamTree |pure| curry(Rotation3D) |ap| axes \
+                     |fmap| (lambda rotate: Morphism |arrow| rotate)
+
+scale = StreamTree |pure| None                              \
+                   |fmap| (lambda _: 2*pi*(2*random() - 1)) \
+                   |fmap| (lambda angle: Morphism |arrow| (lambda t: angle*t))
+
 ## Target expression.
 ## ((switch >>> scale >>> Rotation3D(axis)) &&& line) >>> app
+
+expression = StreamTree                                                      \
+      |pure| curry(lambda switch, scale, rotate: 
+                        evaluate(switch |rcompose| scale |rcompose| rotate)) \
+        |ap| linear                                                          \
+        |ap| scale                                                           \
+        |ap| rotates
+                        
+                
 
 # ============================================================
 # Lambda opacity issue with linked |bind| operations. Post 
 # recursion on Bind case suspend eval seems to fix problem
 # ============================================================
 
-expression = Just(10)                      \
+_expression = Just(10)                     \
     |bind| evaluate(lambda x: Just(x + 10) \
     |bind| evaluate(lambda y: Just(y + x)  \
     |bind| evaluate(lambda z: (x, y, z))))
