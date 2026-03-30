@@ -328,64 +328,54 @@ scale = StreamTree |pure| None                              \
 ## ((switch >>> scale >>> Rotation3D(axis)) &&& line) >>> app
 
 expression = StreamTree                                                      \
-      |pure| curry(lambda switch, scale, rotate: 
+      |pure| curry(lambda switch, scale, rotate:                             \
                         evaluate(switch |rcompose| scale |rcompose| rotate)) \
         |ap| linear                                                          \
         |ap| scale                                                           \
         |ap| rotates
 
 
-def path_random(seed=0):
-    def f(p: tuple[int, ...]) -> float:
-        h = sha256((str(p) + str(seed)).encode()).digest()
-        rng = default_rng(int.from_bytes(h[:8], "little"))
-        return float(rng.random())
-    return f
-
-
-def radius_for_depth( depth: int, base_radius: float = 1.0, alpha: float = 0.8,) -> float:
+def radius_for_depth( depth, base_radius=1.0, alpha= 0.8,):
     return base_radius / (1 + depth) ** alpha
 
 
-def angle_for_prefix( prefix: tuple[int, ...], angle_seed: int = 0,) -> float:
+def angle_for_prefix(prefix, angle_seed=0,):
     r = path_random(angle_seed)
     return 2 * pi * r(prefix)
 
 
-def offset_for_prefix(prefix: tuple[int, ...], base_radius: float = 1.0, alpha: float = 0.8, angle_seed: int = 0,):
+def offset_for_prefix(prefix, base_radius=1.0, alpha=0.8, angle_seed=0,):
     depth = len(prefix) - 1
-    radius = radius_for_depth( depth, base_radius=base_radius, alpha=alpha,)
-    angle = angle_for_prefix( prefix, angle_seed=angle_seed,)
+    radius = radius_for_depth(depth, base_radius, alpha,)
+    angle = angle_for_prefix(prefix, angle_seed)
 
     return array(( radius * cos(angle), radius * sin(angle),))
 
 
-def make_offset_from_path( base_radius: float = 1.0, alpha: float = 0.8, angle_seed: int = 0,):
+def make_offset_from_path(base_radius, alpha, angle_seed):
     @lru_cache(maxsize=None)
-    def offset_from_path(p: tuple[int, ...]):
+    def offset_from_path(p):
         if len(p) == 0:
             return array((0.0, 0.0))
 
         parent = p[:-1]
-        return (offset_from_path(parent) \
-         + offset_for_prefix( p, base_radius=base_radius, alpha=alpha, angle_seed=angle_seed,))
+        return (offset_from_path(parent) + offset_for_prefix(p, base_radius, alpha, angle_seed,))
 
     return offset_from_path
 
 
-def lighthouse_centers( root, base_radius: float = 1.0, alpha: float = 0.8, angle_seed: int = 0,):
-    offset_from_path = make_offset_from_path( base_radius=base_radius, alpha=alpha, angle_seed=angle_seed,)
+def lighthouse_centers( root, base_radius, alpha, angle_seed):
+    offset_from_path = make_offset_from_path(base_radius, alpha, angle_seed)
 
     return StreamTree \
         |pure| curry(lambda root_, offset: root_ + offset) \
         |ap| (StreamTree |pure| root) \
         |ap| (paths() |fmap| offset_from_path)
                         
-root = array((0.0, 0.0))
-
-centers = lighthouse_centers( root=root, base_radius=1.0, alpha=0.8, angle_seed=3,
- ) |fmap| (lambda pair: array([*pair, 0])) \
-   |fmap| (((Morphism |arrow| inverse) |compose| Translate) |fanout| (Morphism, Translate))
+root    = array((0.0, 0.0))
+lighthouses = lighthouse_centers(root, 1.0, 0.8, 3) |fmap| (lambda pair: array([*pair, 0]))
+translates = lighthouses |fmap| Translate
+inverses   = lighthouses |fmap| ((Morphism |arrow| inverse) |compose| Translate)
 
 realized_centers = extract(tree, evaluate(centers))
 
