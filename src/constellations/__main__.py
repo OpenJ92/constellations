@@ -2,6 +2,7 @@ from hashlib import sha256
 from numpy import array, pi, exp, cos, sin
 from numpy.random import random, default_rng
 from numpy.linalg import norm
+from functools import lru_cache
 
 from typeclass.data.stream import Stream, take, iterate
 from typeclass.data.streamtree import StreamTree, paths, coordinates, depths
@@ -14,7 +15,8 @@ from typeclass.data.sequence import Sequence, zipwith
 from typeclass.data.maybe import Just
 from typeclass.data.thunk import suspend
 from typeclass.interpret.run import run, evaluate
-from typeclass.typeclasses.symbols import fmap, pure, ap, compose, rcompose, many, then, skip, otherwise, bind, arrow
+from typeclass.typeclasses.symbols import fmap, pure, ap, compose, rcompose,\
+            many, then, skip, otherwise, bind, arrow, inverse, invert, fanout
 from typeclass.runtime.core import curry
 
 from lsystems.sentences.string import String
@@ -94,7 +96,7 @@ def extract(shape, st):
 
     return Tree(
         st.value,
-        Sequence(zipwith(extract, children, st_children))
+        Sequence(tuple(zipwith(extract, children, st_children)))
     )
 
 # Start symbol
@@ -331,8 +333,107 @@ expression = StreamTree                                                      \
         |ap| linear                                                          \
         |ap| scale                                                           \
         |ap| rotates
+
+
+def path_random(seed=0):
+    def f(p: tuple[int, ...]) -> float:
+        h = sha256((str(p) + str(seed)).encode()).digest()
+        rng = default_rng(int.from_bytes(h[:8], "little"))
+        return float(rng.random())
+    return f
+
+
+def radius_for_depth(
+    depth: int,
+    base_radius: float = 1.0,
+    alpha: float = 0.8,
+) -> float:
+    return base_radius / (1 + depth) ** alpha
+
+
+def angle_for_prefix(
+    prefix: tuple[int, ...],
+    angle_seed: int = 0,
+) -> float:
+    r = path_random(angle_seed)
+    return 2 * pi * r(prefix)
+
+
+def offset_for_prefix(
+    prefix: tuple[int, ...],
+    base_radius: float = 1.0,
+    alpha: float = 0.8,
+    angle_seed: int = 0,
+):
+    depth = len(prefix) - 1
+    radius = radius_for_depth(
+        depth,
+        base_radius=base_radius,
+        alpha=alpha,
+    )
+    angle = angle_for_prefix(
+        prefix,
+        angle_seed=angle_seed,
+    )
+
+    return array((
+        radius * cos(angle),
+        radius * sin(angle),
+    ))
+
+
+def make_offset_from_path(
+    base_radius: float = 1.0,
+    alpha: float = 0.8,
+    angle_seed: int = 0,
+):
+    @lru_cache(maxsize=None)
+    def offset_from_path(p: tuple[int, ...]):
+        if len(p) == 0:
+            return array((0.0, 0.0))
+
+        parent = p[:-1]
+        return (
+            offset_from_path(parent)
+            + offset_for_prefix(
+                p,
+                base_radius=base_radius,
+                alpha=alpha,
+                angle_seed=angle_seed,
+            )
+        )
+
+    return offset_from_path
+
+
+def lighthouse_centers(
+    root,
+    base_radius: float = 1.0,
+    alpha: float = 0.8,
+    angle_seed: int = 0,
+):
+    offset_from_path = make_offset_from_path(
+        base_radius=base_radius,
+        alpha=alpha,
+        angle_seed=angle_seed,
+    )
+
+    return StreamTree \
+        |pure| curry(lambda root_, offset: root_ + offset) \
+        |ap| (StreamTree |pure| root) \
+        |ap| (paths() |fmap| offset_from_path)
                         
-                
+root = array((0.0, 0.0))
+
+centers = lighthouse_centers(
+    root=root,
+    base_radius=1.0,
+    alpha=0.8,
+    angle_seed=3,
+) |fmap| (lambda pair: array([*pair, 0])) \
+  |fmap| (((Morphism |arrow| inverse) |compose| Translate) |fanout| (Morphism, Translate))
+
+realized_centers = extract(tree, evaluate(centers))
 
 # ============================================================
 # Lambda opacity issue with linked |bind| operations. Post 
