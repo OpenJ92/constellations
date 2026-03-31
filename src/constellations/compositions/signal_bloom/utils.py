@@ -1,9 +1,13 @@
 from typeclass.data.sequence import Sequence, zipwith
 from typeclass.data.stream import Stream, take, iterate
+from typeclass.data.tree import Tree
 from typeclass.data.streamtree import paths
 from typeclass.typeclasses.symbols import fmap
 
 from functools import lru_cache
+from hashlib import sha256
+from numpy import array, pi, exp, cos, sin
+from numpy.random import default_rng
 
 def length(sequence):
     return len(sequence._values)
