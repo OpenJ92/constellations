@@ -4,6 +4,7 @@ from numpy.linalg import norm
 
 from typeclass.data.streamtree import StreamTree, paths, coordinates, depths
 from typeclass.data.morphism import Morphism
+from typeclass.data.reader import Reader
 from typeclass.interpret.run import evaluate
 from typeclass.typeclasses.symbols import fmap, pure, ap, compose, inverse, arrow, rcompose
 from typeclass.runtime.core import curry
@@ -71,7 +72,8 @@ inverse_translates = lighthouses \
                    |fmap| ((Morphism |arrow| inverse) |compose| Translate)
 
 functions = StreamTree\
-        |pure| curry(lambda itra, rot, tra, t: itra |rcompose| rot(t) |rcompose| tra)\
+        |pure| curry(lambda itra, rot, tra:\
+                     Reader(lambda t: itra |rcompose| rot(t) |rcompose| tra))\
           |ap| inverse_translates\
           |ap| rotations\
           |ap| translates\
