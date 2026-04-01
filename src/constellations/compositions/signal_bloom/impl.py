@@ -29,10 +29,11 @@ Terminology:
 # Imports
 # ================================
 
-from numpy import array, pi
+from numpy import array, pi, linspace
 from numpy.random import random
 from numpy.linalg import norm
 
+from typeclass.data.sequence import Sequence
 from typeclass.data.stream import Stream, take
 from typeclass.data.streamtree import StreamTree, paths
 from typeclass.data.morphism import Morphism
@@ -113,7 +114,7 @@ rotation_morphisms = StreamTree                                           \
 # Angle scaling as function of t
 angle_scalars = StreamTree                                                \
     |pure| None                                                           \
-    |fmap| (lambda _: 2 * pi * ((1/4) * random() - (1/4)))                \
+    |fmap| (lambda _: 2 * pi * ((1/16) * random() - (1/16)))              \
     |fmap| (lambda angle: Morphism |arrow| (lambda t: angle * t))
 
 
@@ -236,7 +237,7 @@ sample_positions = Stream                                                 \
 
 # Canonical vertical line ("electron")
 base_line = Stream                                                        \
-    |pure| Matrix(array([[0, 0, WORLD_HEIGHT]]))
+    |pure| (Morphism |arrow| (lambda t: array([0.0,0.0,WORLD_HEIGHT*t])))
 
 
 # Lift positions into 3D → translation morphisms
@@ -275,16 +276,19 @@ def descend(tree_sample, line_sample):
 
     return descend(chosen_child, (lposition, line))
 
-
-realized_tree = extract(parsed_tree, evaluate(tree_samples))
-routed_samples = line_samples                                             \
-        |fmap| (lambda line: descend(realized_tree, line))
-
 def machine(readerline):
     reader, line = readerline
     morphism = Morphism |arrow| reader.run
     return morphism |fanout| (Morphism, line) |rcompose| apply(Morphism)
 
-machine_samples = routed_samples                                          \
+realized_tree = extract(parsed_tree, evaluate(tree_samples))
+machine_samples = line_samples                                            \
+        |fmap| (lambda line: descend(realized_tree, line))                \
         |fmap| machine                                                    \
         |fmap| evaluate
+
+SegmentStrip = Sequence
+data = Sequence([SegmentStrip(linspace(0,1,100))])
+structure = take(500, evaluate(machine_samples))
+construction = data |fmap| (lambda electron: structure |ap| electron)
+realization = evaluate(construction)
