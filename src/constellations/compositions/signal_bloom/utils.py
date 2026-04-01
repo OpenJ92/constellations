@@ -1,8 +1,10 @@
 from typeclass.data.sequence import Sequence, zipwith
 from typeclass.data.stream import Stream, take, iterate
 from typeclass.data.tree import Tree
+from typeclass.data.reader import Reader
 from typeclass.data.streamtree import paths
-from typeclass.typeclasses.symbols import fmap
+from typeclass.typeclasses.symbols import fmap, pure, ap
+from typeclass.runtime.core import curry
 
 from functools import lru_cache
 from hashlib import sha256
@@ -66,3 +68,21 @@ def make_offset_from_path(base_radius, alpha, angle_seed):
         return (offset_from_path(parent) + offset_for_prefix(p, base_radius, alpha, angle_seed,))
 
     return offset_from_path
+
+
+def make_reader_composition_from_path():
+    @lru_cache(maxsize=None)
+    def reader_composition_from_path(p):
+        if len(p[0]) == 0:
+            return Reader(lambda x: x)
+
+        path, reader = p
+        parent = path[:-1]
+
+
+        return Reader\
+          |pure| curry(lambda r, q: r |compose| q)\
+            |ap| reader_composition_from_path(parent)\
+            |ap| reader
+
+    return reader_composition_from_path
