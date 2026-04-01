@@ -1,5 +1,8 @@
 from typeclass.data.automorphism import Automorphism
 
+from numpy import array, sin, cos, dot
+from numpy.linalg import norm, cross
+
 class Rotation3D(Automorphism):
     def __init__(self, axis, angle):
         axis = array(axis, dtype=float)
