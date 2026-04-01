@@ -7,5 +7,5 @@ class Translate(Automorphism):
     def _run(self, x):
         return self.vector + x
 
-    def _inv(self):
-        return Translate(-1*self.vector)
+    def _inv(self, x):
+        return Translate(-1*self.vector)(x)
