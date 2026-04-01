@@ -5,4 +5,4 @@ class Matrix(Morphism):
         self.matrix = matrix
 
     def _run(self, x):
-        return self.matrix @ x
+        return self.matrix.T @ x
