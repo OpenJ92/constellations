@@ -29,10 +29,12 @@ Terminology:
 # Imports
 # ================================
 
-from numpy import array, pi
-from numpy.random import random
+from numpy import array, pi, linspace
+from numpy.random import random, seed
 from numpy.linalg import norm
+import time
 
+from typeclass.data.sequence import Sequence
 from typeclass.data.stream import Stream, take
 from typeclass.data.streamtree import StreamTree, paths
 from typeclass.data.morphism import Morphism
@@ -56,13 +58,17 @@ from constellations.lsystems.tree_topology import lsystem
 from .utils import ascending_segment_length_tree, make_offset_from_path, extract
 from lsystems.generate import Generate
 
+seed(34805)
+
+print("START:", time.time())
 
 # ================================
 # Tree Topology (Structure Only)
 # ================================
-
-lsystem_result = Generate(lsystem, depth=7).run()
+lsystem_result = Generate(lsystem, depth=10).run()
+print("lsystem:", time.time())
 parsed_tree = parser.run(lsystem_result)[0][0]
+print("parser:", time.time())
 
 
 # ================================
@@ -84,7 +90,7 @@ node_heights = ascending_segment_length_tree()
 node_widths = StreamTree                                                  \
     |pure| None                                                           \
     |fmap| (lambda _: random())                                           \
-    |fmap| (lambda x: x / 50)
+    |fmap| (lambda x: x / 5)
 
 
 # ================================
@@ -101,7 +107,7 @@ rotation_windows = StreamTree                                             \
 # Random axes on unit sphere
 rotation_axes = StreamTree                                                \
     |pure| None                                                           \
-    |fmap| (lambda _: Sphere()(random((2,))))
+    |fmap| (lambda _: Sphere()(2*pi*random((2,))))
 
 
 # Rotation morphisms (axis → rotation)
@@ -113,7 +119,7 @@ rotation_morphisms = StreamTree                                           \
 # Angle scaling as function of t
 angle_scalars = StreamTree                                                \
     |pure| None                                                           \
-    |fmap| (lambda _: 2 * pi * ((1/4) * random() - (1/4)))                \
+    |fmap| (lambda _: 2 * pi * ((1/4) * random() - (1/4)))              \
     |fmap| (lambda angle: Morphism |arrow| (lambda t: angle * t))
 
 
@@ -236,7 +242,7 @@ sample_positions = Stream                                                 \
 
 # Canonical vertical line ("electron")
 base_line = Stream                                                        \
-    |pure| Matrix(array([[0, 0, WORLD_HEIGHT]]))
+    |pure| (Morphism |arrow| (lambda t: array([0.0,0.0,WORLD_HEIGHT*t])))
 
 
 # Lift positions into 3D → translation morphisms
@@ -275,16 +281,20 @@ def descend(tree_sample, line_sample):
 
     return descend(chosen_child, (lposition, line))
 
-
-realized_tree = extract(parsed_tree, evaluate(tree_samples))
-routed_samples = line_samples                                             \
-        |fmap| (lambda line: descend(realized_tree, line))
-
 def machine(readerline):
     reader, line = readerline
     morphism = Morphism |arrow| reader.run
     return morphism |fanout| (Morphism, line) |rcompose| apply(Morphism)
 
-machine_samples = routed_samples                                          \
+realized_tree = extract(parsed_tree, evaluate(tree_samples))
+machine_samples = line_samples                                            \
+        |fmap| (lambda line: descend(realized_tree, line))                \
         |fmap| machine                                                    \
         |fmap| evaluate
+
+## data = Sequence([SegmentStrip(linspace(0,1,100))])
+## structure = take(500, evaluate(machine_samples))
+## construction = data |fmap| (lambda electron: structure |ap| electron)
+## realization = evaluate(construction)
+
+
