@@ -292,3 +292,5 @@ data = Sequence([SegmentStrip(linspace(0,1,100))])
 structure = take(500, evaluate(machine_samples))
 construction = data |fmap| (lambda electron: structure |ap| electron)
 realization = evaluate(construction)
+
+
