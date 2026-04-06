@@ -60,16 +60,17 @@ from constellations.compositions.signal_bloom import *
 from constellations.geometry.core import SegmentStrip
 from constellations.interpreters.svg import SVG
 
-samples = SegmentStrip(linspace(0, 1.25, 150))
+samples = SegmentStrip(linspace(0, 1.5, 150))
 machine_samples = machine_samples                                         \
         |fmap| (lambda morphism: samples |fmap| morphism)                 \
-        |fmap| (lambda segment: segment |fmap| Matrix(array([[1,0,0],[0,0,1]]).T))
+        |fmap| (lambda segment: segment |fmap| Matrix(array([[1,0,0]
+                                                            ,[0,0,1]]).T))
 
 compiled = evaluate(machine_samples)
 print("compile:", time.time())
 
-computation = evaluate(take(600, evaluate(machine_samples)))
+computation = evaluate(take(400, compiled))
 print("compute:", time.time())
 
-SVG().write_to_file("src/constellations/compositions/signal_bloom/13.svg", computation)
+SVG().write_to_file("src/constellations/compositions/signal_bloom/66.svg", computation)
 print("write:", time.time())
