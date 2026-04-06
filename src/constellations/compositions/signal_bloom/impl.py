@@ -30,8 +30,10 @@ Terminology:
 # ================================
 
 from numpy import array, pi, linspace
-from numpy.random import random
+from numpy.random import random, seed
+
 from numpy.linalg import norm
+import time
 
 from typeclass.data.sequence import Sequence
 from typeclass.data.stream import Stream, take
@@ -44,7 +46,7 @@ from typeclass.typeclasses.symbols import (
 )
 from typeclass.runtime.core import curry
 
-from constellations.morphisms.switches import LinearWindow
+from constellations.morphisms.switches import LinearWindow, SmoothWindow
 from constellations.morphisms.translate import Translate
 from constellations.morphisms.matrix import Matrix
 from constellations.morphisms.rotations import Rotation3D
@@ -57,21 +59,25 @@ from constellations.lsystems.tree_topology import lsystem
 from .utils import ascending_segment_length_tree, make_offset_from_path, extract
 from lsystems.generate import Generate
 
+seed(364)
+
+print("START:", time.time())
 
 # ================================
 # Tree Topology (Structure Only)
 # ================================
-
-lsystem_result = Generate(lsystem, depth=7).run()
+lsystem_result = Generate(lsystem, depth=11).run()
+print("lsystem:", time.time())
 parsed_tree = parser.run(lsystem_result)[0][0]
+print("parser:", time.time())
 
 
 # ================================
 # Global Constants
 # ================================
 
-WORLD_WIDTH  = 0.2     # scales flattened XY space
-WORLD_HEIGHT = 20      # scales Z axis (geometry height)
+WORLD_WIDTH  = 0.4     # scales flattened XY space
+WORLD_HEIGHT = 40      # scales Z axis (geometry height)
 
 
 # ================================
@@ -79,13 +85,14 @@ WORLD_HEIGHT = 20      # scales Z axis (geometry height)
 # ================================
 
 # Tree-based heights (used for domain control, not geometry directly)
-node_heights = ascending_segment_length_tree()
+node_heights = ascending_segment_length_tree()                            \
+    |fmap| (lambda t: t + .3)
 
 # Width parameters for activation windows
 node_widths = StreamTree                                                  \
     |pure| None                                                           \
     |fmap| (lambda _: random())                                           \
-    |fmap| (lambda x: x / 50)
+    |fmap| (lambda x: x / 6)
 
 
 # ================================
@@ -94,7 +101,7 @@ node_widths = StreamTree                                                  \
 
 # Controls when rotations activate over t
 rotation_windows = StreamTree                                             \
-    |pure| curry(LinearWindow)                                            \
+    |pure| curry(SmoothWindow)                                            \
       |ap| node_heights                                                   \
       |ap| node_widths
 
@@ -102,7 +109,7 @@ rotation_windows = StreamTree                                             \
 # Random axes on unit sphere
 rotation_axes = StreamTree                                                \
     |pure| None                                                           \
-    |fmap| (lambda _: Sphere()(random((2,))))
+    |fmap| (lambda _: Sphere()(2*pi*random((2,))))
 
 
 # Rotation morphisms (axis → rotation)
@@ -114,7 +121,7 @@ rotation_morphisms = StreamTree                                           \
 # Angle scaling as function of t
 angle_scalars = StreamTree                                                \
     |pure| None                                                           \
-    |fmap| (lambda _: 2 * pi * ((1/16) * random() - (1/16)))              \
+    |fmap| (lambda _: 2 * pi * ((1/4) * random() - (1/4)))              \
     |fmap| (lambda angle: Morphism |arrow| (lambda t: angle * t))
 
 
@@ -193,7 +200,7 @@ def compose_down_tree(tree, accumulated):
     children = tree.children.force()
 
     combined_reader = Reader                                              \
-        |pure| curry(lambda parent, local: parent |compose| local)        \
+        |pure| curry(lambda parent, local: local |rcompose| parent)       \
           |ap| accumulated                                                \
           |ap| local_reader                                               \
         |fmap| evaluate
@@ -260,21 +267,21 @@ line_samples = Stream                                                     \
       |ap| sample_positions                                               \
       |ap| placed_lines
 
+def collect_leaves(tree):
+    if not tree.children._values:
+        return [tree.value]
+    out = []
+    for child in tree.children._values:
+        out.extend(collect_leaves(child))
+    return out
 
-def descend(tree_sample, line_sample):
-    tposition, reader = tree_sample.value
+def classify(leaves, line_sample):
     lposition, line = line_sample
-    children        = tree_sample.children
-    
-    if not children._values:
-        return reader, line
-
-    chosen_child = min(
-        children._values,
-        key=lambda child: norm(lposition - child.value[0]),
+    pos, reader = min(
+        leaves,
+        key=lambda leaf: norm(lposition - leaf[0]),
     )
-
-    return descend(chosen_child, (lposition, line))
+    return reader, line
 
 def machine(readerline):
     reader, line = readerline
@@ -282,15 +289,10 @@ def machine(readerline):
     return morphism |fanout| (Morphism, line) |rcompose| apply(Morphism)
 
 realized_tree = extract(parsed_tree, evaluate(tree_samples))
+leaves = collect_leaves(realized_tree)
 machine_samples = line_samples                                            \
-        |fmap| (lambda line: descend(realized_tree, line))                \
+        |fmap| (lambda line: classify(leaves, line))                      \
         |fmap| machine                                                    \
         |fmap| evaluate
-
-SegmentStrip = Sequence
-data = Sequence([SegmentStrip(linspace(0,1,100))])
-structure = take(500, evaluate(machine_samples))
-construction = data |fmap| (lambda electron: structure |ap| electron)
-realization = evaluate(construction)
 
 
