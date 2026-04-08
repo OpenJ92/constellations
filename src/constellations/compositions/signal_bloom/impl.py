@@ -31,6 +31,7 @@ Terminology:
 
 from numpy import array, pi, linspace
 from numpy.random import random, seed
+
 from numpy.linalg import norm
 import time
 
@@ -293,4 +294,5 @@ machine_samples = line_samples                                            \
         |fmap| (lambda line: classify(leaves, line))                      \
         |fmap| machine                                                    \
         |fmap| evaluate
+
 
