@@ -59,7 +59,7 @@ from constellations.lsystems.tree_topology import lsystem
 from .utils import ascending_segment_length_tree, make_offset_from_path, extract
 from lsystems.generate import Generate
 
-seed(364)
+seed(134374)
 
 print("START:", time.time())
 
@@ -76,7 +76,7 @@ print("parser:", time.time())
 # Global Constants
 # ================================
 
-WORLD_WIDTH  = 0.4     # scales flattened XY space
+WORLD_WIDTH  = 0.6     # scales flattened XY space
 WORLD_HEIGHT = 40      # scales Z axis (geometry height)
 
 
