@@ -69,8 +69,11 @@ machine_samples = machine_samples                                         \
 compiled = evaluate(machine_samples)
 print("compile:", time.time())
 
-computation = evaluate(take(400, compiled))
+computation = evaluate(take(500, compiled))
 print("compute:", time.time())
 
-SVG().write_to_file("src/constellations/compositions/signal_bloom/66.svg", computation)
+SVG().write_to_file(
+    "src/constellations/compositions/signal_bloom/renders/svg/78.svg"
+    , computation
+    )
 print("write:", time.time())
