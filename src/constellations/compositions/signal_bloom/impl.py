@@ -29,9 +29,8 @@ Terminology:
 # Imports
 # ================================
 
-from numpy import array, pi, linspace
-from numpy.random import random, seed
-
+from numpy import array, pi, linspace, diag
+from numpy.random import random, seed, randint
 from numpy.linalg import norm
 import time
 
@@ -40,6 +39,7 @@ from typeclass.data.stream import Stream, take
 from typeclass.data.streamtree import StreamTree, paths
 from typeclass.data.morphism import Morphism
 from typeclass.data.reader import Reader
+from typeclass.data.tree import pretty
 from typeclass.interpret.run import evaluate, interpret
 from typeclass.typeclasses.symbols import (
     fmap, pure, ap, compose, inverse, arrow, rcompose, identity, fanout, apply
@@ -52,23 +52,30 @@ from constellations.morphisms.matrix import Matrix
 from constellations.morphisms.rotations import Rotation3D
 from constellations.morphisms.sphere import Sphere
 from constellations.morphisms.disk import Disk
+from constellations.morphisms.boundingbox import BoundingBox
 
 from constellations.parsers.tree_topology import parser
 from constellations.lsystems.tree_topology import lsystem
 
+from constellations.geometry.core import SegmentStrip
+from constellations.interpreters.svg import SVG
+
 from .utils import ascending_segment_length_tree, make_offset_from_path, extract
 from lsystems.generate import Generate
 
-seed(134374)
+n = randint((2**32) - 1)
+print(n)
+seed(n)
 
 print("START:", time.time())
 
 # ================================
 # Tree Topology (Structure Only)
 # ================================
-lsystem_result = Generate(lsystem, depth=11).run()
+lsystem_result = Generate(lsystem, depth=5).run()
 print("lsystem:", time.time())
 parsed_tree = parser.run(lsystem_result)[0][0]
+pretty(parsed_tree)
 print("parser:", time.time())
 
 
@@ -92,7 +99,7 @@ node_heights = ascending_segment_length_tree()                            \
 node_widths = StreamTree                                                  \
     |pure| None                                                           \
     |fmap| (lambda _: random())                                           \
-    |fmap| (lambda x: x / 6)
+    |fmap| (lambda x: x / 3)
 
 
 # ================================
@@ -121,7 +128,7 @@ rotation_morphisms = StreamTree                                           \
 # Angle scaling as function of t
 angle_scalars = StreamTree                                                \
     |pure| None                                                           \
-    |fmap| (lambda _: 2 * pi * ((1/4) * random() - (1/4)))              \
+    |fmap| (lambda _: 2 * pi * ((9/40) * random() - (9/40)))              \
     |fmap| (lambda angle: Morphism |arrow| (lambda t: angle * t))
 
 
@@ -296,3 +303,36 @@ machine_samples = line_samples                                            \
         |fmap| evaluate
 
 
+samples = SegmentStrip(linspace(0, 1.6, 20))
+machine_samples = machine_samples                                         \
+        |fmap| (lambda morphism: samples |fmap| morphism)                 \
+        |fmap| (lambda segment: segment |fmap| Matrix(array([[1,0,0]
+                                                            ,[0,0,1]]).T))
+
+compiled = evaluate(machine_samples)
+print("compile:", time.time())
+
+computation = evaluate(take(10, compiled))
+print("compute:", time.time())
+
+bbox = BoundingBox()(computation)
+
+from constellations.realizations.primitives.square import square
+from constellations.geometry.rectangle import Rectangle
+
+rectangle = Rectangle(bbox.min, bbox.max)
+
+bound = Reader |pure| curry(lambda rect, strip:                           \
+    strip                                                                 \
+        |fmap| Matrix(diag(rectangle.extent))                             \
+        |fmap| Translate(rectangle.min))                                  \
+    |ap| (Reader |pure| rectangle)                                        \
+    |ap| square                                                           \
+  |fmap| evaluate
+
+SVG().write_to_file(
+    f"src/constellations/compositions/signal_bloom/renders/svg/{n}.svg"
+    , Sequence((computation, SegmentStrip(evaluate(bound).run(1)._values)))
+    )
+
+## print("write:", time.time())

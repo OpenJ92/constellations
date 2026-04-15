@@ -1,3 +1,5 @@
+from numpy import array
+
 from typeclass.data.morphism import Morphism
 from typeclass.data.reader import Reader
 from typeclass.typeclasses.symbols import arrow, rcompose, pure, combine, ap, fmap
