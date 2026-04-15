@@ -58,7 +58,7 @@ def offset_for_prefix(prefix, base_radius=1.0, alpha=0.8, angle_seed=0,):
     return array(( radius * cos(angle), radius * sin(angle),))
 
 
-def make_offset_from_path(base_radius, alpha, angle_seed):
+def make_offset_from_path(base_radius, alpha=0, angle_seed=3):
     @lru_cache(maxsize=None)
     def offset_from_path(p):
         if len(p) == 0:
