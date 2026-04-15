@@ -318,21 +318,15 @@ print("compute:", time.time())
 bbox = BoundingBox()(computation)
 
 from constellations.realizations.primitives.square import square
+from constellations.realizations.primitives.rectangle import rectangle
 from constellations.geometry.rectangle import Rectangle
 
-rectangle = Rectangle(bbox.min, bbox.max)
+rect = Rectangle(bbox.min, bbox.max)
+Rectangle = rectangle |ap| (Reader |pure| rect) |ap| square |fmap| evaluate
 
-bound = Reader |pure| curry(lambda rect, strip:                           \
-    strip                                                                 \
-        |fmap| Matrix(diag(rectangle.extent))                             \
-        |fmap| Translate(rectangle.min))                                  \
-    |ap| (Reader |pure| rectangle)                                        \
-    |ap| square                                                           \
-  |fmap| evaluate
-
-SVG().write_to_file(
-    f"src/constellations/compositions/signal_bloom/renders/svg/{n}.svg"
-    , Sequence((computation, SegmentStrip(evaluate(bound).run(1)._values)))
-    )
+## SVG().write_to_file(
+##     f"src/constellations/compositions/signal_bloom/renders/svg/{n}.svg"
+##     , Sequence((computation, SegmentStrip(evaluate(bound).run(1)._values)))
+##     )
 
 ## print("write:", time.time())
