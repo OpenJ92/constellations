@@ -7,11 +7,11 @@ from constellations.geometry.rectangle import Rectangle
 from constellations.morphisms.boundingbox import Box
 
 
-@dataclass(frozen=True)
 class Fit(Morphism):
-    target: Rectangle
-    bbox: Box
-    margin: float = 0.0
+    def __init__(self, target, bbox, margin = 0.0):
+        self.target = target
+        self.bbox = bbox
+        self.margin = margin
 
     def _run(self, x):
         x = asarray(x, dtype=float)

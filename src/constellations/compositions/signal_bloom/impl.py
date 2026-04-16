@@ -53,12 +53,21 @@ from constellations.morphisms.rotations import Rotation3D
 from constellations.morphisms.sphere import Sphere
 from constellations.morphisms.disk import Disk
 from constellations.morphisms.boundingbox import BoundingBox
+from constellations.morphisms.fit import Fit
 
 from constellations.parsers.tree_topology import parser
+
 from constellations.lsystems.tree_topology import lsystem
 
+from constellations.realizations.primitives.square import square
+from constellations.realizations.primitives.rectangle import rectangle
+
+from constellations.geometry.rectangle import Rectangle
 from constellations.geometry.core import SegmentStrip
+
 from constellations.interpreters.svg import SVG
+
+from constellations.paper.core import A0, A2, A0x2
 
 from .utils import ascending_segment_length_tree, make_offset_from_path, extract
 from lsystems.generate import Generate
@@ -72,7 +81,7 @@ print("START:", time.time())
 # ================================
 # Tree Topology (Structure Only)
 # ================================
-lsystem_result = Generate(lsystem, depth=5).run()
+lsystem_result = Generate(lsystem, depth=11).run()
 print("lsystem:", time.time())
 parsed_tree = parser.run(lsystem_result)[0][0]
 pretty(parsed_tree)
@@ -303,30 +312,29 @@ machine_samples = line_samples                                            \
         |fmap| evaluate
 
 
-samples = SegmentStrip(linspace(0, 1.6, 20))
+iso = array([
+    [1.0, -1.0, 0.0],
+    [0.5,  0.5, -1.2],
+])
+samples = SegmentStrip(linspace(0, 1.70, 100))
 machine_samples = machine_samples                                         \
         |fmap| (lambda morphism: samples |fmap| morphism)                 \
-        |fmap| (lambda segment: segment |fmap| Matrix(array([[1,0,0]
-                                                            ,[0,0,1]]).T))
+        |fmap| (lambda segment: segment |fmap| Matrix(iso.T))
 
 compiled = evaluate(machine_samples)
 print("compile:", time.time())
 
-computation = evaluate(take(10, compiled))
+computation = evaluate(take(900, compiled))
 print("compute:", time.time())
 
+
 bbox = BoundingBox()(computation)
+frame = computation                                                       \
+        |fmap| (lambda strip: strip |fmap| Fit(A0x2.rectangle, bbox))
 
-from constellations.realizations.primitives.square import square
-from constellations.realizations.primitives.rectangle import rectangle
-from constellations.geometry.rectangle import Rectangle
+SVG().write_to_file(
+    f"src/constellations/compositions/signal_bloom/renders/svg/{n}.svg"
+    , evaluate(frame)
+    )
 
-rect = Rectangle(bbox.min, bbox.max)
-Rectangle = rectangle |ap| (Reader |pure| rect) |ap| square |fmap| evaluate
-
-## SVG().write_to_file(
-##     f"src/constellations/compositions/signal_bloom/renders/svg/{n}.svg"
-##     , Sequence((computation, SegmentStrip(evaluate(bound).run(1)._values)))
-##     )
-
-## print("write:", time.time())
+print("write:", time.time())
