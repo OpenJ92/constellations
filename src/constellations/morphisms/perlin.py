@@ -26,8 +26,9 @@ class Perlin_Stack(Morphism):
         self.seeds = seeds
 
     def _run(self, ts: array):
-        perlins = []
-        for octave, seed, proportion in zip(self.octaves, self.seeds, self.proportions):
+        perlins  = []
+        traverse = zip(self.octaves, self.seeds, self.proportions)
+        for octave, seed, proportion in traverse:
             perlins.append(Perlin_Noise(octave, int(seed), proportion))
 
         retval = 0
