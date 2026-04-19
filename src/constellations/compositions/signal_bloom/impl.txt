@@ -46,7 +46,6 @@ from .utils import ascending_segment_length_tree, make_offset_from_path, extract
 from lsystems.generate import Generate
 
 n = randint((2**32) - 1)
-print(n)
 seed(n)
 
 # ================================
@@ -279,14 +278,11 @@ iso = array([
 samples = SegmentStrip(linspace(0, 1.70, 100))
 machine_samples = machine_samples                                         \
         |fmap| (lambda morphism: samples |fmap| morphism)                 \
-        |fmap| (lambda segment:  segment |fmap| Matrix(iso.T))
+        |fmap| (lambda segment: segment |fmap| Matrix(iso.T))
 
 compiled = evaluate(machine_samples)
-print("compile:", time.time())
 
 computation = evaluate(take(900, compiled))
-print("compute:", time.time())
-
 
 bbox = BoundingBox()(computation)
 frame = computation                                                       \
@@ -296,5 +292,3 @@ SVG().write_to_file(
     f"src/constellations/compositions/signal_bloom/renders/svg/{n}.svg"
     , evaluate(frame)
     )
-
-print("write:", time.time())
