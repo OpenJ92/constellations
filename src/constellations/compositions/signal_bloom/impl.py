@@ -3,12 +3,13 @@
 # ================================
 
 from numpy import array, pi, linspace, diag
-from numpy.random import random, seed, randint
+from numpy.random import default_rng, randint
 from numpy.linalg import norm
+from hashlib import sha256
 import time
 
 from typeclass.data.sequence import Sequence
-from typeclass.data.stream import Stream, take
+from typeclass.data.stream import Stream, take, iterate
 from typeclass.data.streamtree import StreamTree, paths
 from typeclass.data.morphism import Morphism
 from typeclass.data.reader import Reader
@@ -45,15 +46,25 @@ from constellations.paper.core import A0, A2, A0x2
 from .utils import ascending_segment_length_tree, make_offset_from_path, extract
 from lsystems.generate import Generate
 
-n = randint((2**32) - 1)
-print(n)
-seed(n)
+COMPOSITION_SEED = randint((2**32) - 1)
+def keyed_rng(seed=0, tag=""):
+    def f(key):
+        h = sha256((repr((seed, tag, key))).encode()).digest()
+        return default_rng(int.from_bytes(h[:8], "little"))
+    return f
+
+rng_segments = keyed_rng(COMPOSITION_SEED, "segments")
+rng_widths   = keyed_rng(COMPOSITION_SEED, "widths")
+rng_axes     = keyed_rng(COMPOSITION_SEED, "axes")
+rng_angles   = keyed_rng(COMPOSITION_SEED, "angles")
+rng_samples  = keyed_rng(COMPOSITION_SEED, "samples")
 
 # ================================
 # Tree Topology (Structure Only)
 # ================================
 
-lsystem_result = Generate(lsystem, depth=11).run()
+TOPOLOGY_SEED = randint((2**32) - 1)
+lsystem_result = Generate(lsystem, depth=11, seed=TOPOLOGY_SEED).run()
 parsed_tree = parser.run(lsystem_result)[0][0]
 
 
@@ -74,9 +85,9 @@ node_heights = ascending_segment_length_tree()                            \
     |fmap| (lambda t: t + .3)
 
 # Width parameters for activation windows
-node_widths = StreamTree                                                  \
-    |pure| None                                                           \
-    |fmap| (lambda _: random())                                           \
+node_widths = paths()                                                     \
+    |fmap| rng_widths                                                     \
+    |fmap| (lambda rng: rng.random())                                     \
     |fmap| (lambda x: x / 3)
 
 
@@ -92,9 +103,11 @@ rotation_windows = StreamTree                                             \
 
 
 # Random axes on unit sphere
-rotation_axes = StreamTree                                                \
-    |pure| None                                                           \
-    |fmap| (lambda _: Sphere()(2*pi*random((2,))))
+rotation_axes = paths()                                                   \
+    |fmap| rng_axes                                                       \
+    |fmap| (lambda rng: rng.random((2,)))                                 \
+    |fmap| (lambda vec: 2*pi*vec)                                         \
+    |fmap| Sphere()
 
 
 # Rotation morphisms (axis → rotation)
@@ -104,9 +117,10 @@ rotation_morphisms = StreamTree                                           \
 
 
 # Angle scaling as function of t
-angle_scalars = StreamTree                                                \
-    |pure| None                                                           \
-    |fmap| (lambda _: 2 * pi * ((9/40) * random() - (9/40)))              \
+angle_scalars = paths()                                                   \
+    |fmap| rng_angles                                                     \
+    |fmap| (lambda rng: rng.random())                                     \
+    |fmap| (lambda num: 2 * pi * ((9/40) * num - (9/40)))                 \
     |fmap| (lambda angle: Morphism |arrow| (lambda t: angle * t))
 
 
@@ -211,10 +225,11 @@ tree_samples = StreamTree                                                 \
 # ================================
 
 # Sample positions in disk → scale to world space
-sample_positions = Stream                                                 \
-    |pure| None                                                           \
-    |fmap| (lambda _: random((2,)) * array([1, 2*pi]))                    \
-    |fmap| Disk()                                                         \
+sample_positions = iterate(lambda i: i + 1, 0)                            \
+    |fmap| rng_samples                                                    \
+    |fmap| (lambda rng: rng.random((2,)))                                 \
+    |fmap| (lambda vec: vec * array([1, 2*pi]))                           \
+    |fmap|  Disk()                                                        \
     |fmap| (lambda xy: WORLD_WIDTH * xy)
 
 
@@ -293,7 +308,7 @@ frame = computation                                                       \
         |fmap| (lambda strip: strip |fmap| Fit(A0x2.rectangle, bbox))
 
 SVG().write_to_file(
-    f"src/constellations/compositions/signal_bloom/renders/svg/{n}.svg"
+    f"src/constellations/compositions/signal_bloom/renders/svg/{COMPOSITION_SEED}_{TOPOLOGY_SEED}.svg"
     , evaluate(frame)
     )
 
