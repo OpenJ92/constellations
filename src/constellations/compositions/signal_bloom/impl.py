@@ -10,7 +10,7 @@ import time
 
 from typeclass.data.sequence import Sequence
 from typeclass.data.stream import Stream, take, iterate
-from typeclass.data.streamtree import StreamTree, paths
+from typeclass.data.streamtree import StreamTree, paths, depths
 from typeclass.data.morphism import Morphism
 from typeclass.data.reader import Reader
 from typeclass.data.tree import pretty
@@ -43,16 +43,30 @@ from constellations.interpreters.svg import SVG
 
 from constellations.paper.core import A0, A2, A0x2
 
-from .utils import ascending_segment_length_tree, make_offset_from_path, extract
+from .utils import extract, collect_leaves, classify
 from lsystems.generate import Generate
 
 COMPOSITION_SEED = randint((2**32) - 1)
+## def keyed_rng(seed=0, tag=""):
+##     def f(key):
+##         h = sha256((repr((seed, tag, key))).encode()).digest()
+##         return default_rng(int.from_bytes(h[:8], "little"))
+##     return f
+
+from functools import lru_cache
+
 def keyed_rng(seed=0, tag=""):
-    def f(key):
+    @lru_cache(maxsize=None)
+    def local_seed(key):
         h = sha256((repr((seed, tag, key))).encode()).digest()
-        return default_rng(int.from_bytes(h[:8], "little"))
+        return int.from_bytes(h[:8], "little")
+
+    def f(key):
+        return default_rng(local_seed(key))
+
     return f
 
+rng_offsets  = keyed_rng(COMPOSITION_SEED, "offsets")
 rng_segments = keyed_rng(COMPOSITION_SEED, "segments")
 rng_widths   = keyed_rng(COMPOSITION_SEED, "widths")
 rng_axes     = keyed_rng(COMPOSITION_SEED, "axes")
@@ -75,14 +89,23 @@ parsed_tree = parser.run(lsystem_result)[0][0]
 WORLD_WIDTH  = 0.6     # scales flattened XY space
 WORLD_HEIGHT = 40      # scales Z axis (geometry height)
 
-
 # ================================
 # Domain Parameters (NOT world space)
 # ================================
 
-# Tree-based heights (used for domain control, not geometry directly)
-node_heights = ascending_segment_length_tree()                            \
-    |fmap| (lambda t: t + .3)
+def prefix_accum(r, p, alpha, floor):
+    return sum(
+        floor + (1.0 - floor) * r(p[:i]).random() / (1 + i)**alpha
+        for i in range(1, len(p) + 1)
+    )
+
+ALPHA = 0.7
+FLOOR = 0.0
+TRUNK = 0.3
+
+node_heights = paths()                                                    \
+    |fmap| (lambda key: prefix_accum(rng_segments, key, ALPHA, FLOOR))    \
+    |fmap| (lambda t: t + TRUNK)
 
 # Width parameters for activation windows
 node_widths = paths()                                                     \
@@ -141,14 +164,46 @@ local_rotations = StreamTree                                              \
 
 world_root = array((0.0, 0.0))
 
-path_to_offset = make_offset_from_path(1.0, 0.8, 3)
+def sum_down_tree(tree, accumulated, is_root=False):
+    local = tree.value
+    children = tree.children.force()
 
+    combined = accumulated if is_root else accumulated + local
+
+    summed_children = children \
+        |fmap| (lambda child: sum_down_tree(child, combined))
+
+    return StreamTree(combined, interpret(summed_children))
+
+OFFSET_RADIUS = 1.0
+OFFSET_ALPHA = 0.8
+
+radii = depths()                                                          \
+    |fmap| (lambda depth: OFFSET_RADIUS / (1 + depth) ** OFFSET_ALPHA)
+
+
+angles = paths()                                                          \
+    |fmap| rng_offsets                                                    \
+    |fmap| (lambda rng: rng.random())                                     \
+    |fmap| (lambda num: 2 * pi * num)
+
+
+local_offsets = StreamTree                                                \
+    |pure| curry(lambda radius, angle: Disk()(array([radius, angle])))    \
+      |ap| radii                                                          \
+      |ap| angles
+
+world_offsets = sum_down_tree(
+    evaluate(local_offsets),
+    world_root,
+    is_root = True
+)
 
 # Flattened XY positions (shared world frame)
 world_anchor_xy = StreamTree                                              \
     |pure| curry(lambda root_, offset: root_ + offset)                    \
       |ap| (StreamTree |pure| world_root)                                 \
-      |ap| (paths() |fmap| path_to_offset)                                \
+      |ap| world_offsets                                                  \
     |fmap| (lambda point: WORLD_WIDTH * point)
 
 
@@ -258,21 +313,6 @@ line_samples = Stream                                                     \
       |ap| sample_positions                                               \
       |ap| placed_lines
 
-def collect_leaves(tree):
-    if not tree.children._values:
-        return [tree.value]
-    out = []
-    for child in tree.children._values:
-        out.extend(collect_leaves(child))
-    return out
-
-def classify(leaves, line_sample):
-    lposition, line = line_sample
-    pos, reader = min(
-        leaves,
-        key=lambda leaf: norm(lposition - leaf[0]),
-    )
-    return reader, line
 
 def machine(readerline):
     reader, line = readerline
@@ -299,7 +339,7 @@ machine_samples = machine_samples                                         \
 compiled = evaluate(machine_samples)
 print("compile:", time.time())
 
-computation = evaluate(take(900, compiled))
+computation = evaluate(take(1000, compiled))
 print("compute:", time.time())
 
 
