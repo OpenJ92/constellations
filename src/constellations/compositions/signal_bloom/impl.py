@@ -5,6 +5,7 @@
 from numpy import array, pi, linspace, diag
 from numpy.random import default_rng, randint
 from numpy.linalg import norm
+from functools import lru_cache
 from hashlib import sha256
 import time
 
@@ -43,17 +44,10 @@ from constellations.interpreters.svg import SVG
 
 from constellations.paper.core import A0, A2, A0x2
 
-from .utils import extract, collect_leaves, classify
+from .utils import extract, collect_leaves, classify, sum_down_tree
 from lsystems.generate import Generate
 
 COMPOSITION_SEED = randint((2**32) - 1)
-## def keyed_rng(seed=0, tag=""):
-##     def f(key):
-##         h = sha256((repr((seed, tag, key))).encode()).digest()
-##         return default_rng(int.from_bytes(h[:8], "little"))
-##     return f
-
-from functools import lru_cache
 
 def keyed_rng(seed=0, tag=""):
     @lru_cache(maxsize=None)
@@ -78,34 +72,36 @@ rng_samples  = keyed_rng(COMPOSITION_SEED, "samples")
 # ================================
 
 TOPOLOGY_SEED = randint((2**32) - 1)
-lsystem_result = Generate(lsystem, depth=11, seed=TOPOLOGY_SEED).run()
+lsystem_result = Generate(lsystem, depth=14, seed=TOPOLOGY_SEED).run()
 parsed_tree = parser.run(lsystem_result)[0][0]
-
+pretty(parsed_tree)
 
 # ================================
 # Global Constants
 # ================================
 
 WORLD_WIDTH  = 0.6     # scales flattened XY space
-WORLD_HEIGHT = 40      # scales Z axis (geometry height)
+WORLD_HEIGHT = 10      # scales Z axis (geometry height)
 
 # ================================
 # Domain Parameters (NOT world space)
 # ================================
 
-def prefix_accum(r, p, alpha, floor):
-    return sum(
-        floor + (1.0 - floor) * r(p[:i]).random() / (1 + i)**alpha
-        for i in range(1, len(p) + 1)
-    )
-
 ALPHA = 0.7
 FLOOR = 0.0
 TRUNK = 0.3
 
-node_heights = paths()                                                    \
-    |fmap| (lambda key: prefix_accum(rng_segments, key, ALPHA, FLOOR))    \
-    |fmap| (lambda t: t + TRUNK)
+height_contributions = StreamTree                                         \
+    |pure| curry(lambda depth, rng:                                       \
+        FLOOR + (((1.0 - FLOOR) * rng.random()) / ((1 + depth) ** ALPHA)))\
+      |ap| depths()                                                       \
+      |ap| (paths() |fmap| rng_segments)                                  \
+
+node_heights = sum_down_tree(
+    evaluate(height_contributions),
+    TRUNK,
+    is_root=True,
+)
 
 # Width parameters for activation windows
 node_widths = paths()                                                     \
@@ -163,17 +159,6 @@ local_rotations = StreamTree                                              \
 # ================================
 
 world_root = array((0.0, 0.0))
-
-def sum_down_tree(tree, accumulated, is_root=False):
-    local = tree.value
-    children = tree.children.force()
-
-    combined = accumulated if is_root else accumulated + local
-
-    summed_children = children \
-        |fmap| (lambda child: sum_down_tree(child, combined))
-
-    return StreamTree(combined, interpret(summed_children))
 
 OFFSET_RADIUS = 1.0
 OFFSET_ALPHA = 0.8
@@ -331,7 +316,7 @@ iso = array([
     [1.0, -1.0, 0.0],
     [0.5,  0.5, -1.2],
 ])
-samples = SegmentStrip(linspace(0, 1.70, 100))
+samples = SegmentStrip(linspace(0, 2.1, 100))
 machine_samples = machine_samples                                         \
         |fmap| (lambda morphism: samples |fmap| morphism)                 \
         |fmap| (lambda segment:  segment |fmap| Matrix(iso.T))
