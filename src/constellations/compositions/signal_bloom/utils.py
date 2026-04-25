@@ -12,6 +12,10 @@ from numpy import array, pi, exp, cos, sin
 from numpy.linalg import norm
 from numpy.random import default_rng
 
+from typeclass.data.streamtree import StreamTree
+from typeclass.typeclasses.symbols import fmap
+from typeclass.interpret.run import evaluate, interpret
+
 def length(sequence):
     return len(sequence._values)
 
@@ -24,6 +28,18 @@ def extract(shape, st):
         st.value,
         Sequence(tuple(zipwith(extract, children, st_children)))
     )
+
+
+def sum_down_tree(tree, accumulated, is_root=False):
+    local = tree.value
+    children = tree.children.force()
+
+    combined = accumulated if is_root else accumulated + local
+
+    summed_children = children \
+        |fmap| (lambda child: sum_down_tree(child, combined))
+
+    return StreamTree(combined, interpret(summed_children))
 
 def collect_leaves(tree):
     if not tree.children._values:

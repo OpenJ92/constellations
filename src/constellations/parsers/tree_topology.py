@@ -16,8 +16,7 @@ def token(c):
 def _tree():
     return tree
 
-lbrack = token("[")
-rbrack = token("]")
+lbrack, rbrack = token("["), token("]")
 
 leaf   = lbrack |then| rbrack
 branch = lbrack |then| (Parser |many| delay(_tree)) |skip| rbrack
