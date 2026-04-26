@@ -91,23 +91,34 @@ ALPHA = 0.7
 FLOOR = 0.0
 TRUNK = 0.3
 
-height_contributions = StreamTree                                         \
-    |pure| curry(lambda depth, rng:                                       \
-        FLOOR + (((1.0 - FLOOR) * rng.random()) / ((1 + depth) ** ALPHA)))\
-      |ap| depths()                                                       \
-      |ap| (paths() |fmap| rng_segments)                                  \
+## height_contributions :: Reader SignalBloomEnv (StreamTree Float)
+height_contributions = Reader(lambda env:                                 \
+        StreamTree                                                        \
+        |pure| curry(lambda depth, rng:                                   \
+            env.FLOOR                                                     \
+            + (((1.0 - env.FLOOR) * rng.random())                         \
+            / ((1 + depth) ** env.ALPHA)))                                \
+        |ap| depths()                                                     \
+        |ap| (paths() |fmap| keyed_rng(env.HEIGHT_SEED, "segments"))      \
+    )
 
-node_heights = sum_down_tree(
-    evaluate(height_contributions),
-    TRUNK,
-    is_root=True,
-)
+
+## node_heights :: Reader SignalBloomEnv (StreamTree Float)
+node_heights = Reader                                                     \
+    |pure| curry(lambda trunk, heights:                                   \
+        sum_down_tree(evaluate(heights), trunk, is_root=True))            \
+      |ap| Reader(lambda env: env.TRUNK)                                  \
+      |ap| height_contributions
+
 
 # Width parameters for activation windows
-node_widths = paths()                                                     \
-    |fmap| rng_widths                                                     \
-    |fmap| (lambda rng: rng.random())                                     \
-    |fmap| (lambda x: x / 3)
+## node_heights :: Reader SignalBloomEnv (StreamTree Float)
+node_widths = Reader(lambda env:                                          \
+        paths()                                                           \
+        |fmap| keyed_rng(env.WIDTHS_SEED, "widths")                       \
+        |fmap| (lambda rng: rng.random())                                 \
+        |fmap| (lambda x: x / 3)                                          \
+    )
 
 
 # ================================
@@ -115,43 +126,68 @@ node_widths = paths()                                                     \
 # ================================
 
 # Controls when rotations activate over t
-rotation_windows = StreamTree                                             \
-    |pure| curry(SmoothWindow)                                            \
-      |ap| node_heights                                                   \
-      |ap| node_widths
+## rotation_windows :: Reader SignalBloomEnv (StreamTree (Float -> Float))
+rotation_windows = Reader                                                 \
+    |pure| curry(lambda heights, widths:                                  \
+        StreamTree                                                        \
+            |pure| curry(SmoothWindow)                                    \
+              |ap| heights                                                \
+              |ap| widths                                                 \
+    )                                                                     \
+    |ap| node_heights                                                     \
+    |ap| node_widths
 
 
 # Random axes on unit sphere
-rotation_axes = paths()                                                   \
-    |fmap| rng_axes                                                       \
-    |fmap| (lambda rng: rng.random((2,)))                                 \
-    |fmap| (lambda vec: 2*pi*vec)                                         \
-    |fmap| Sphere()
+## rotation_axes :: Reader SignalBloomEnv (StreamTree NDArray)
+rotation_axes = Reader(lambda env:                                        \
+        paths()                                                           \
+        |fmap| keyed_rng(env.AXES_SEED, "axes")                           \
+        |fmap| (lambda rng: rng.random((2,)))                             \
+        |fmap| (lambda vec: 2*pi*vec)                                     \
+        |fmap| Sphere()                                                   \
+    )
 
 
 # Rotation morphisms (axis → rotation)
-rotation_morphisms = StreamTree                                           \
-    |pure| curry(Rotation3D) |ap| rotation_axes                           \
-    |fmap| (lambda rotate: Morphism |arrow| rotate)
+## rotation_morphisms :: Reader SignalBloomEnv (StreamTree Morphism)
+rotation_morphisms = Reader                                               \
+    |pure| curry(lambda axes:                                             \
+        StreamTree                                                        \
+        |pure| curry(Rotation3D)                                          \
+          |ap| axes                                                       \
+        |fmap| (lambda rotate: Morphism |arrow| rotate)                   \
+    )                                                                     \
+    |ap| rotation_axes
 
 
 # Angle scaling as function of t
-angle_scalars = paths()                                                   \
-    |fmap| rng_angles                                                     \
-    |fmap| (lambda rng: rng.random())                                     \
-    |fmap| (lambda num: 2 * pi * ((9/40) * num - (9/40)))                 \
-    |fmap| (lambda angle: Morphism |arrow| (lambda t: angle * t))
+## angle_scalars :: Reader SignalBloomEnv (StreamTree Morphism)
+angle_scalars = Reader(lambda env:                                        \
+        paths()                                                           \
+        |fmap| keyed_rng(env.ANGLE_SEED, "angle")                         \
+        |fmap| (lambda rng: rng.random())                                 \
+        |fmap| (lambda num: 2 * pi * ((9/40) * num - (9/40)))             \
+        |fmap| (lambda angle: Morphism |arrow| (lambda t: angle * t))     \
+    )
 
 
 # Combine: window ∘ scale ∘ rotate
 # Result: t ↦ rotation morphism
-local_rotations = StreamTree                                              \
-    |pure| curry(lambda window, scale, rotate:
-                 window |rcompose| scale |rcompose| rotate)               \
-      |ap| rotation_windows                                               \
-      |ap| angle_scalars                                                  \
-      |ap| rotation_morphisms                                             \
-    |fmap| evaluate
+## local_rotations :: Reader SignalBloomEnv (StreamTree Morphism)
+local_rotations = Reader                                                  \
+    |pure| curry(lambda windows, angles, rotations:                       \
+        StreamTree                                                        \
+        |pure| curry(lambda window, angle, rotate:                        \
+                     window |rcompose| angle |rcompose| rotate)           \
+          |ap| windows                                                    \
+          |ap| angles                                                     \
+          |ap| rotations                                                  \
+        |fmap| evaluate                                                   \
+    )                                                                     \
+    |ap| rotation_windows                                                 \
+    |ap| angle_scalars                                                    \
+    |ap| rotation_morphisms
 
 
 # ================================
