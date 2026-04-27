@@ -7,6 +7,7 @@ from numpy.random import default_rng, randint
 from numpy.linalg import norm
 from functools import lru_cache
 from hashlib import sha256
+from dataclasses import dataclass
 import time
 
 from typeclass.data.sequence import Sequence
@@ -46,6 +47,22 @@ from constellations.paper.core import A0, A2, A0x2
 
 from .utils import extract, collect_leaves, classify, sum_down_tree
 from lsystems.generate import Generate
+
+@dataclass(frozen=True)
+class SignalBloomEnv:
+    FLOOR : float
+    ALPHA : float
+    TRUNK : float
+
+    OFFSET_RADIUS : float
+    OFFSET_ALPHA  : float
+
+    HEIGHT_SEED : int
+    WIDTHS_SEED : int
+    AXES_SEED   : int
+    ANGLE_SEED  : int
+    OFFSET_SEED : int
+    SAMPLE_SEED : int
 
 COMPOSITION_SEED = randint((2**32) - 1)
 
@@ -92,23 +109,29 @@ FLOOR = 0.0
 TRUNK = 0.3
 
 ## height_contributions :: Reader SignalBloomEnv (StreamTree Float)
-height_contributions = Reader(lambda env:                                 \
-        StreamTree                                                        \
-        |pure| curry(lambda depth, rng:                                   \
-            env.FLOOR                                                     \
-            + (((1.0 - env.FLOOR) * rng.random())                         \
-            / ((1 + depth) ** env.ALPHA)))                                \
-        |ap| depths()                                                     \
-        |ap| (paths() |fmap| keyed_rng(env.HEIGHT_SEED, "segments"))      \
-    )
+height_contributions = Reader(lambda env:
+    StreamTree
+        |pure| curry(lambda depth, rng:
+            env.FLOOR
+            + ((1.0 - env.FLOOR) * rng.random())
+              / ((1 + depth) ** env.ALPHA)
+        )
+        |ap| depths()
+        |ap| (paths() |fmap| keyed_rng(env.HEIGHT_SEED, "segments"))
+)
 
 
 ## node_heights :: Reader SignalBloomEnv (StreamTree Float)
-node_heights = Reader                                                     \
-    |pure| curry(lambda trunk, heights:                                   \
-        sum_down_tree(evaluate(heights), trunk, is_root=True))            \
-      |ap| Reader(lambda env: env.TRUNK)                                  \
-      |ap| height_contributions
+node_heights = Reader                                                    \
+    |pure| curry(lambda trunk, heights:
+        sum_down_tree(
+            evaluate(heights),
+            trunk,
+            is_root=True,
+        )
+    )                                                                     \
+    |ap| Reader(lambda env: env.TRUNK)                                    \
+    |ap| height_contributions
 
 
 # Width parameters for activation windows
@@ -175,15 +198,18 @@ angle_scalars = Reader(lambda env:                                        \
 # Combine: window ∘ scale ∘ rotate
 # Result: t ↦ rotation morphism
 ## local_rotations :: Reader SignalBloomEnv (StreamTree Morphism)
-local_rotations = Reader                                                  \
-    |pure| curry(lambda windows, angles, rotations:                       \
-        StreamTree                                                        \
-        |pure| curry(lambda window, angle, rotate:                        \
-                     window |rcompose| angle |rcompose| rotate)           \
-          |ap| windows                                                    \
-          |ap| angles                                                     \
-          |ap| rotations                                                  \
-        |fmap| evaluate                                                   \
+local_rotations = Reader                                                 \
+    |pure| curry(lambda windows, angles, rotations:
+        StreamTree
+            |pure| curry(lambda window, angle, rotate:
+                window
+                |rcompose| angle
+                |rcompose| rotate
+            )
+            |ap| windows
+            |ap| angles
+            |ap| rotations
+        |fmap| evaluate
     )                                                                     \
     |ap| rotation_windows                                                 \
     |ap| angle_scalars                                                    \
@@ -199,26 +225,45 @@ world_root = array((0.0, 0.0))
 OFFSET_RADIUS = 1.0
 OFFSET_ALPHA = 0.8
 
-radii = depths()                                                          \
-    |fmap| (lambda depth: OFFSET_RADIUS / (1 + depth) ** OFFSET_ALPHA)
+local_radii = Reader(lambda env:                                          \
+        depths()                                                          \
+        |fmap| (lambda depth: 1 + depth)                                  \
+        |fmap| (lambda value: value ** env.OFFSET_ALPHA)                  \
+        |fmap| (lambda value: env.OFFSET_RADIUS / value)                  \
+    )
 
 
-angles = paths()                                                          \
-    |fmap| rng_offsets                                                    \
-    |fmap| (lambda rng: rng.random())                                     \
-    |fmap| (lambda num: 2 * pi * num)
+local_angles = Reader(lambda env:                                         \
+        paths()                                                           \
+        |fmap| keyed_rng(env.OFFSET_SEED, "offsets")                      \
+        |fmap| (lambda rng: rng.random())                                 \
+        |fmap| (lambda num: 2 * pi * num)                                 \
+    )
 
 
-local_offsets = StreamTree                                                \
-    |pure| curry(lambda radius, angle: Disk()(array([radius, angle])))    \
-      |ap| radii                                                          \
-      |ap| angles
+local_offsets = Reader                                                   \
+    |pure| curry(lambda radii, angles:
+        StreamTree
+            |pure| curry(lambda radius, angle:
+                Disk()(array([radius, angle]))
+            )
+            |ap| radii
+            |ap| angles
+    )                                                                     \
+    |ap| local_radii                                                      \
+    |ap| local_angles
 
-world_offsets = sum_down_tree(
-    evaluate(local_offsets),
-    world_root,
-    is_root = True
-)
+
+world_offsets = Reader                                                    \
+    |pure| curry(lambda offsets:
+        sum_down_tree(
+            evaluate(offsets),
+            array([0.0, 0.0]),
+            is_root=True,
+        )
+    )                                                                     \
+    |ap| local_offsets
+
 
 # Flattened XY positions (shared world frame)
 world_anchor_xy = StreamTree                                              \
