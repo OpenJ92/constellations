@@ -50,6 +50,9 @@ from lsystems.generate import Generate
 
 @dataclass(frozen=True)
 class SignalBloomEnv:
+    WORLD_WIDTH  : float
+    WORLD_HEIGHT : float
+
     FLOOR : float
     ALPHA : float
     TRUNK : float
@@ -65,6 +68,25 @@ class SignalBloomEnv:
     SAMPLE_SEED : int
 
 COMPOSITION_SEED = randint((2**32) - 1)
+
+env = SignalBloomEnv(
+    WORLD_WIDTH  = 0.6,
+    WORLD_HEIGHT = 10,
+
+    FLOOR = 0.0,
+    ALPHA = 0.7,
+    TRUNK = 0.3,
+
+    OFFSET_RADIUS = 1.0,
+    OFFSET_ALPHA  = 0.8,
+
+    HEIGHT_SEED = randint(2**32 - 1), 
+    WIDTHS_SEED = randint(2**32 - 1), 
+    AXES_SEED   = randint(2**32 - 1), 
+    ANGLE_SEED  = randint(2**32 - 1), 
+    OFFSET_SEED = randint(2**32 - 1), 
+    SAMPLE_SEED = randint(2**32 - 1), 
+)
 
 def keyed_rng(seed=0, tag=""):
     @lru_cache(maxsize=None)
@@ -97,8 +119,6 @@ pretty(parsed_tree)
 # Global Constants
 # ================================
 
-WORLD_WIDTH  = 0.6     # scales flattened XY space
-WORLD_HEIGHT = 10      # scales Z axis (geometry height)
 
 # ================================
 # Domain Parameters (NOT world space)
@@ -255,51 +275,77 @@ local_offsets = Reader                                                   \
 
 
 world_offsets = Reader                                                    \
-    |pure| curry(lambda offsets:
-        sum_down_tree(
-            evaluate(offsets),
-            array([0.0, 0.0]),
-            is_root=True,
-        )
+    |pure| curry(lambda offsets:                                          \
+        sum_down_tree(                                                    \
+            evaluate(offsets),                                            \
+            array([0.0, 0.0]),                                            \
+            is_root=True,                                                 \
+        )                                                                 \
     )                                                                     \
     |ap| local_offsets
 
-
 # Flattened XY positions (shared world frame)
-world_anchor_xy = StreamTree                                              \
-    |pure| curry(lambda root_, offset: root_ + offset)                    \
-      |ap| (StreamTree |pure| world_root)                                 \
-      |ap| world_offsets                                                  \
-    |fmap| (lambda point: WORLD_WIDTH * point)
+world_anchor_xy = Reader                                                  \
+    |pure| curry(lambda scale, offsets: evaluate(offsets |fmap| scale))   \
+    |ap| Reader(lambda env: (lambda offset: env.WORLD_WIDTH*offset))      \
+    |ap| world_offsets
 
 
 # Lift into 3D using scaled heights
-world_anchor_points = StreamTree                                          \
-    |pure| curry(lambda xy, z: array([*xy, z]))                           \
+world_anchor_points = Reader                                              \
+    |pure| curry(lambda anchor_xy, heights, scale:                        \
+        StreamTree                                                        \
+        |pure| curry(lambda xy, z: array([*xy, z]))                       \
+          |ap| anchor_xy                                                  \
+          |ap| (heights |fmap| (lambda height: scale * height))           \
+        )                                                                 \
       |ap| world_anchor_xy                                                \
-      |ap| (node_heights |fmap| (lambda h: WORLD_HEIGHT * h))
+      |ap| node_heights                                                   \
+      |ap| Reader(lambda env: env.WORLD_HEIGHT)
 
+
+evaluation = evaluate(world_anchor_points).run(env)
+breakpoint()
 
 # ================================
 # Local Transformations (Per Node)
 # ================================
 
-# Translate to anchor
-forward_transforms = world_anchor_points |fmap| Translate
+# :: Reader SignalBloomEnv (StreamTree Morphism)
+forward_transforms = Reader                                               \
+    |pure| (lambda anchor_points:
+        anchor_points |fmap| Translate
+    )                                                                     \
+    |ap| world_anchor_points
 
-# Translate back to origin
-inverse_transforms = world_anchor_points                                  \
-    |fmap| ((Morphism |arrow| inverse) |compose| Translate)
+
+# :: Reader SignalBloomEnv (StreamTree Morphism)
+inverse_transforms = Reader                                               \
+    |pure| (lambda anchor_points:
+        anchor_points |fmap| (lambda p: inverse(Translate(p)))
+    )                                                                     \
+    |ap| world_anchor_points
 
 
-# Local transform:
-# t ↦ inverse → rotation(t) → forward
-local_transform_functions = StreamTree                                    \
-    |pure| curry(lambda inv, rot, fwd:
-          Reader(lambda t: inv |rcompose| rot(t) |rcompose| fwd))         \
-      |ap| inverse_transforms                                             \
-      |ap| local_rotations                                                \
-      |ap| forward_transforms
+# :: Reader SignalBloomEnv (StreamTree Morphism)
+local_transform_functions = Reader                                        \
+    |pure| curry(lambda invs, rots, fwds:
+        StreamTree                                                        \
+            |pure| curry(lambda inv, rot, fwd:
+                rot
+                |rcompose| (Morphism |arrow| (lambda r:
+                    inv
+                    |rcompose| r
+                    |rcompose| fwd
+                ))
+            )                                                             \
+            |ap| invs                                                     \
+            |ap| rots                                                     \
+            |ap| fwds
+    )                                                                     \
+    |ap| inverse_transforms                                               \
+    |ap| local_rotations                                                  \
+    |ap| forward_transforms
 
 
 # ================================
@@ -380,9 +426,8 @@ line_samples = Stream                                                     \
       |ap| placed_lines
 
 
-def machine(readerline):
-    reader, line = readerline
-    morphism = Morphism |arrow| reader.run
+def machine(morphismline):
+    morphsim, line = morphismline
     return morphism |fanout| (Morphism, line) |rcompose| apply(Morphism)
 
 realized_tree = extract(parsed_tree, evaluate(tree_samples))
