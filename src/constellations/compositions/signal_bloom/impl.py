@@ -45,7 +45,7 @@ from constellations.interpreters.svg import SVG
 
 from constellations.paper.core import A0, A2, A0x2
 
-from .utils import extract, collect_leaves, classify, sum_down_tree
+from .utils import extract, collect_leaves, classify, sum_down_tree, compose_down_tree
 from lsystems.generate import Generate
 
 @dataclass(frozen=True)
@@ -304,9 +304,6 @@ world_anchor_points = Reader                                              \
       |ap| Reader(lambda env: env.WORLD_HEIGHT)
 
 
-evaluation = evaluate(world_anchor_points).run(env)
-breakpoint()
-
 # ================================
 # Local Transformations (Per Node)
 # ================================
@@ -341,51 +338,47 @@ local_transform_functions = Reader                                        \
             )                                                             \
             |ap| invs                                                     \
             |ap| rots                                                     \
-            |ap| fwds
+            |ap| fwds                                                     \
+            |fmap| evaluate
     )                                                                     \
     |ap| inverse_transforms                                               \
     |ap| local_rotations                                                  \
-    |ap| forward_transforms
-
-
-# ================================
-# Tree Scan (Compose Downward)
-# ================================
-
-def compose_down_tree(tree, accumulated):
-    local_reader = tree.value
-    children = tree.children.force()
-
-    combined_reader = Reader                                              \
-        |pure| curry(lambda parent, local: local |rcompose| parent)       \
-          |ap| accumulated                                                \
-          |ap| local_reader                                               \
-        |fmap| evaluate
-
-    composed_children = children                                          \
-        |fmap| (lambda child: compose_down_tree(child, combined_reader))
-
-    return StreamTree(evaluate(combined_reader), interpret(composed_children))
+    |ap| forward_transforms                                               \
+    |fmap| evaluate
 
 
 # ================================
 # Fully Composed Transformation Field
 # ================================
 
-initial_transform = Reader(lambda _: identity(Morphism))
 
-composed_tree = compose_down_tree(
-    evaluate(local_transform_functions),
-    initial_transform
-)
+initial_transform = evaluate(identity(Morphism))
+
+composed_tree = Reader                                                    \
+    |pure| curry(lambda transform_functions:                              \
+        compose_down_tree(                                                \
+            evaluate(transform_functions),                                \
+            initial_transform                                             \
+        )                                                                 \
+    )                                                                     \
+    |ap| local_transform_functions
 
 
 # Pair each node with its world position
-tree_samples = StreamTree                                                 \
-    |pure| curry(lambda pos, fn: (pos, fn))                               \
-      |ap| world_anchor_xy                                                \
-      |ap| composed_tree
+tree_samples = Reader                                                     \
+    |pure| curry(lambda anchor_xy, composed:                              \
+        StreamTree                                                        \
+        |pure| curry(lambda pos, fn: (pos, fn))                           \
+          |ap| anchor_xy                                                  \
+          |ap| composed                                                   \
+    )                                                                     \
+    |ap| world_anchor_xy                                                  \
+    |ap| composed_tree                                                    \
+    |fmap| evaluate
 
+
+evaluation = evaluate(tree_samples).run(env)
+breakpoint()
 
 # ================================
 # Finite Sampling (Geometry)
@@ -428,7 +421,9 @@ line_samples = Stream                                                     \
 
 def machine(morphismline):
     morphsim, line = morphismline
-    return morphism |fanout| (Morphism, line) |rcompose| apply(Morphism)
+    return morphism                                                       \
+        |fanout| (Morphism, line)                                         \
+        |rcompose| apply(Morphism)
 
 realized_tree = extract(parsed_tree, evaluate(tree_samples))
 leaves = collect_leaves(realized_tree)

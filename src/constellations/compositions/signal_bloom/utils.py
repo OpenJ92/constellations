@@ -3,7 +3,7 @@ from typeclass.data.stream import Stream, take, iterate
 from typeclass.data.tree import Tree
 from typeclass.data.reader import Reader
 from typeclass.data.streamtree import paths
-from typeclass.typeclasses.symbols import fmap, pure, ap
+from typeclass.typeclasses.symbols import fmap, pure, ap, rcompose
 from typeclass.runtime.core import curry
 
 from functools import lru_cache
@@ -40,6 +40,19 @@ def sum_down_tree(tree, accumulated, is_root=False):
         |fmap| (lambda child: sum_down_tree(child, combined))
 
     return StreamTree(combined, interpret(summed_children))
+
+
+def compose_down_tree(tree, accumulated):
+    local = tree.value
+    children = tree.children.force()
+
+    combined = evaluate(local |rcompose| accumulated)
+
+    composed_children = children                                          \
+        |fmap| (lambda child: compose_down_tree(child, combined))
+
+    return StreamTree(combined, interpret(composed_children))
+
 
 def collect_leaves(tree):
     if not tree.children._values:
