@@ -46,13 +46,18 @@ def compose_down_tree(tree, accumulated):
     local = tree.value
     children = tree.children.force()
 
-    combined = evaluate(local |rcompose| accumulated)
+    combined = Reader                                                     \
+        |pure| curry(lambda local_morphism, accumulated_morphism:
+            local_morphism |rcompose| accumulated_morphism
+        )                                                                 \
+        |ap| local                                                        \
+        |ap| accumulated                                                  \
+        |fmap| evaluate
 
     composed_children = children                                          \
-        |fmap| (lambda child: compose_down_tree(child, combined))
+        |fmap| (lambda child: compose_down_tree(child, evaluate(combined)))
 
-    return StreamTree(combined, interpret(composed_children))
-
+    return StreamTree(evaluate(combined), interpret(composed_children))
 
 def collect_leaves(tree):
     if not tree.children._values:

@@ -7,7 +7,9 @@ from numpy.random import default_rng, randint
 from numpy.linalg import norm
 from functools import lru_cache
 from hashlib import sha256
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+from pathlib import Path
+import json
 import time
 
 from typeclass.data.sequence import Sequence
@@ -53,6 +55,9 @@ class SignalBloomEnv:
     WORLD_WIDTH  : float
     WORLD_HEIGHT : float
 
+    ELECTRON_LENGTH : float
+    ELECTRON_SAMPLES : int
+
     FLOOR : float
     ALPHA : float
     TRUNK : float
@@ -60,6 +65,7 @@ class SignalBloomEnv:
     OFFSET_RADIUS : float
     OFFSET_ALPHA  : float
 
+    TOPOLOGY_SEED : int
     HEIGHT_SEED : int
     WIDTHS_SEED : int
     AXES_SEED   : int
@@ -67,11 +73,12 @@ class SignalBloomEnv:
     OFFSET_SEED : int
     SAMPLE_SEED : int
 
-COMPOSITION_SEED = randint((2**32) - 1)
-
 env = SignalBloomEnv(
     WORLD_WIDTH  = 0.6,
     WORLD_HEIGHT = 10,
+
+    ELECTRON_LENGTH = 2.1,
+    ELECTRON_SAMPLES = 100,
 
     FLOOR = 0.0,
     ALPHA = 0.7,
@@ -80,6 +87,7 @@ env = SignalBloomEnv(
     OFFSET_RADIUS = 1.0,
     OFFSET_ALPHA  = 0.8,
 
+    TOPOLOGY_SEED = randint(2**32 - 1),
     HEIGHT_SEED = randint(2**32 - 1), 
     WIDTHS_SEED = randint(2**32 - 1), 
     AXES_SEED   = randint(2**32 - 1), 
@@ -99,21 +107,16 @@ def keyed_rng(seed=0, tag=""):
 
     return f
 
-rng_offsets  = keyed_rng(COMPOSITION_SEED, "offsets")
-rng_segments = keyed_rng(COMPOSITION_SEED, "segments")
-rng_widths   = keyed_rng(COMPOSITION_SEED, "widths")
-rng_axes     = keyed_rng(COMPOSITION_SEED, "axes")
-rng_angles   = keyed_rng(COMPOSITION_SEED, "angles")
-rng_samples  = keyed_rng(COMPOSITION_SEED, "samples")
-
 # ================================
 # Tree Topology (Structure Only)
 # ================================
 
-TOPOLOGY_SEED = randint((2**32) - 1)
-lsystem_result = Generate(lsystem, depth=14, seed=TOPOLOGY_SEED).run()
-parsed_tree = parser.run(lsystem_result)[0][0]
-pretty(parsed_tree)
+lsystem_result = Reader(lambda env: 
+    Generate(lsystem, depth=14, seed=env.TOPOLOGY_SEED).run())
+
+parsed_tree = Reader                                                      \
+    |pure| (lambda result: parser.run(result)[0][0])                      \
+      |ap| lsystem_result
 
 # ================================
 # Global Constants
@@ -123,10 +126,6 @@ pretty(parsed_tree)
 # ================================
 # Domain Parameters (NOT world space)
 # ================================
-
-ALPHA = 0.7
-FLOOR = 0.0
-TRUNK = 0.3
 
 ## height_contributions :: Reader SignalBloomEnv (StreamTree Float)
 height_contributions = Reader(lambda env:
@@ -324,35 +323,31 @@ inverse_transforms = Reader                                               \
     |ap| world_anchor_points
 
 
-# :: Reader SignalBloomEnv (StreamTree Morphism)
+# :: Reader SignalBloomEnv (StreamTree (Reader Float Morphism))
 local_transform_functions = Reader                                        \
     |pure| curry(lambda invs, rots, fwds:
         StreamTree                                                        \
             |pure| curry(lambda inv, rot, fwd:
-                rot
-                |rcompose| (Morphism |arrow| (lambda r:
+                Reader(lambda t:
                     inv
-                    |rcompose| r
+                    |rcompose| rot(t)
                     |rcompose| fwd
-                ))
+                )
             )                                                             \
             |ap| invs                                                     \
             |ap| rots                                                     \
-            |ap| fwds                                                     \
-            |fmap| evaluate
+            |ap| fwds
     )                                                                     \
     |ap| inverse_transforms                                               \
     |ap| local_rotations                                                  \
-    |ap| forward_transforms                                               \
-    |fmap| evaluate
-
+    |ap| forward_transforms
 
 # ================================
 # Fully Composed Transformation Field
 # ================================
 
 
-initial_transform = evaluate(identity(Morphism))
+initial_transform = Reader(lambda _: identity(Morphism))
 
 composed_tree = Reader                                                    \
     |pure| curry(lambda transform_functions:                              \
@@ -377,72 +372,107 @@ tree_samples = Reader                                                     \
     |fmap| evaluate
 
 
-evaluation = evaluate(tree_samples).run(env)
-breakpoint()
-
 # ================================
 # Finite Sampling (Geometry)
 # ================================
 
 # Sample positions in disk → scale to world space
-sample_positions = iterate(lambda i: i + 1, 0)                            \
-    |fmap| rng_samples                                                    \
-    |fmap| (lambda rng: rng.random((2,)))                                 \
-    |fmap| (lambda vec: vec * array([1, 2*pi]))                           \
-    |fmap|  Disk()                                                        \
-    |fmap| (lambda xy: WORLD_WIDTH * xy)
-
+sample_positions = Reader(lambda env:                                     \
+        iterate(lambda i: i + 1, 0)                                       \
+        |fmap| keyed_rng(env.SAMPLE_SEED, "sample")                       \
+        |fmap| (lambda rng: rng.random((2,)))                             \
+        |fmap| (lambda vec: vec * array([1, 2*pi]))                       \
+        |fmap|  Disk()                                                    \
+        |fmap| (lambda xy: env.WORLD_WIDTH * xy)                          \
+    )
 
 # Canonical vertical line ("electron")
-base_line = Stream                                                        \
-    |pure| (Morphism |arrow| (lambda t: array([0.0,0.0,WORLD_HEIGHT*t])))
-
+base_line = Reader(lambda env:                                            \
+    Stream                                                                \
+    |pure| (Morphism |arrow| (                                            \
+        lambda t: array([0.0,0.0,env.WORLD_HEIGHT*t]))))
 
 # Lift positions into 3D → translation morphisms
-sample_translations = sample_positions                                    \
-    |fmap| (lambda xy: array([*xy, 0]))                                   \
-    |fmap| Translate
-
+sample_translations = Reader                                              \
+    |pure| (lambda positions:                                             \
+        positions                                                         \
+        |fmap| (lambda xy: array([*xy, 0]))                               \
+        |fmap| Translate                                                  \
+    )                                                                     \
+    |ap| sample_positions
 
 # Place line at sampled locations
-placed_lines = Stream                                                     \
-    |pure| curry(lambda line, loc: line |rcompose| loc)                   \
-      |ap| base_line                                                      \
-      |ap| sample_translations                                            \
-    |fmap| evaluate
+placed_lines = Reader                                                     \
+    |pure| curry(lambda base, translations:                               \
+        Stream                                                            \
+        |pure| curry(lambda line, loc: line |rcompose| loc)               \
+          |ap| base                                                       \
+          |ap| translations                                               \
+        |fmap| evaluate
+    )                                                                     \
+    |ap| base_line                                                        \
+    |ap| sample_translations
 
 
 # Final finite samples: (position, geometry)
-line_samples = Stream                                                     \
-    |pure| curry(lambda pos, line: (pos, line))                           \
-      |ap| sample_positions                                               \
-      |ap| placed_lines
+line_samples = Reader                                                     \
+    |pure| curry(lambda positions, lines:                                 \
+        Stream                                                            \
+        |pure| curry(lambda pos, line: (pos, line))                       \
+          |ap| positions                                                  \
+          |ap| lines                                                      \
+    )                                                                     \
+    |ap| sample_positions                                                 \
+    |ap| placed_lines
 
 
-def machine(morphismline):
-    morphsim, line = morphismline
+def machine(readerline):
+    reader, line = readerline
+    morphism = Morphism |arrow| reader.run
     return morphism                                                       \
         |fanout| (Morphism, line)                                         \
         |rcompose| apply(Morphism)
 
-realized_tree = extract(parsed_tree, evaluate(tree_samples))
-leaves = collect_leaves(realized_tree)
-machine_samples = line_samples                                            \
-        |fmap| (lambda line: classify(leaves, line))                      \
+realized_tree = Reader                                                    \
+    |pure| curry(lambda parsed, samples:                                  \
+        extract(parsed, evaluate(samples))                                \
+    )                                                                     \
+    |ap| parsed_tree                                                      \
+    |ap| tree_samples
+
+leaves = Reader                                                           \
+    |pure| (lambda realized: collect_leaves(realized))                    \
+    |ap| realized_tree
+
+machine_samples = Reader                                                  \
+    |pure| curry(lambda lines, leafs:                                     \
+        lines                                                             \
+        |fmap| (lambda line: classify(leafs, line))                       \
         |fmap| machine                                                    \
-        |fmap| evaluate
+        |fmap| evaluate                                                   \
+    )                                                                     \
+    |ap| line_samples                                                     \
+    |ap| leaves                                                           \
 
 
 iso = array([
     [1.0, -1.0, 0.0],
     [0.5,  0.5, -1.2],
 ])
-samples = SegmentStrip(linspace(0, 2.1, 100))
-machine_samples = machine_samples                                         \
-        |fmap| (lambda morphism: samples |fmap| morphism)                 \
-        |fmap| (lambda segment:  segment |fmap| Matrix(iso.T))
+samples = Reader(lambda env: 
+    SegmentStrip(linspace(0, env.ELECTRON_LENGTH, env.ELECTRON_SAMPLES)))
 
-compiled = evaluate(machine_samples)
+construction = Reader                                                     \
+    |pure| curry(lambda ms, electron:                                     \
+        ms                                                                \
+        |fmap| (lambda morphism: electron |fmap| morphism)                \
+        |fmap| (lambda segment:  segment |fmap| Matrix(iso.T))            \
+        |fmap| evaluate                                                   \
+    )                                                                     \
+    |ap| machine_samples                                                  \
+    |ap| samples
+
+compiled = evaluate(construction).run(env)
 print("compile:", time.time())
 
 computation = evaluate(take(1000, compiled))
@@ -453,9 +483,53 @@ bbox = BoundingBox()(computation)
 frame = computation                                                       \
         |fmap| (lambda strip: strip |fmap| Fit(A0x2.rectangle, bbox))
 
-SVG().write_to_file(
-    f"src/constellations/compositions/signal_bloom/renders/svg/{COMPOSITION_SEED}_{TOPOLOGY_SEED}.svg"
-    , evaluate(frame)
+def env_payload(env):
+    payload = asdict(env)
+
+    normalized = {}
+    for key, value in payload.items():
+        if hasattr(value, "item"):
+            value = value.item()
+        normalized[key] = value
+
+    return normalized
+
+
+def env_signature(env):
+    payload = env_payload(env)
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
     )
+    return sha256(encoded.encode()).hexdigest()
+
+
+def env_filename(env, prefix="signal_bloom", suffix="svg"):
+    return f"{prefix}__{env_signature(env)}.{suffix}"
+
+
+def write_env_sidecar(env, svg_path):
+    payload = env_payload(env)
+    payload["signature"] = env_signature(env)
+
+    json_path = Path(svg_path).with_suffix(".json")
+
+    with open(json_path, "w") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+
+    return json_path
+
+svg_path = (
+    "src/constellations/compositions/signal_bloom/renders/svg/"
+    f"{env_filename(env)}"
+)
+
+SVG().write_to_file(
+    svg_path,
+    evaluate(frame),
+)
+
+write_env_sidecar(env, svg_path)
 
 print("write:", time.time())
