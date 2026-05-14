@@ -1,4 +1,5 @@
 typeclass-core==1.0.3
 lsystems-core==0.1.0
-numpy==2.4.3
 perlin_noise==1.12
+numpy==2.4.3
+pillow==12.2.0
