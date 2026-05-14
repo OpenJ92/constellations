@@ -11,13 +11,10 @@ from constellations.morphisms.translate import Translate
 
 from constellations.realizations.primitives.segment import segment
 
-left = Morphism |arrow| (lambda t: array([0.0, t]))
-
-up = Morphism |arrow| (lambda t: array([t, 1.0]))
-
+left  = Morphism |arrow| (lambda t: array([0.0, t]))
+up    = Morphism |arrow| (lambda t: array([t, 1.0]))
 right = Morphism |arrow| (lambda t: array([1.0, 1.0 - t]))
-
-down = Morphism |arrow| (lambda t: array([1.0 - t, 0.0]))
+down  = Morphism |arrow| (lambda t: array([1.0 - t, 0.0]))
 
 
 close = lambda strip: strip |combine| SegmentStrip((strip._values[0],))
