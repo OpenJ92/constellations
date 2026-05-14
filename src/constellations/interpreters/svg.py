@@ -1,6 +1,5 @@
 from dataclasses import dataclass
-
-from dataclasses import dataclass
+from pathlib import Path
 
 from typeclass.data.sequence import Sequence
 
@@ -10,10 +9,30 @@ from constellations.interpreters.interpreter import Interpreter
 
 @dataclass
 class SVG(Interpreter):
-    width: str = "297mm"
-    height: str = "210mm"
-    viewBox: str = "0 0 297 210"
-    default_meta: str = 'fill="none" stroke="black" stroke-width="1"'
+    surface: object
+    stroke: str = "black"
+    fill: str = "none"
+    stroke_width: float = 1.0
+
+    @property
+    def width(self) -> str:
+        return f"{self.surface.width}{self.surface.unit}"
+
+    @property
+    def height(self) -> str:
+        return f"{self.surface.height}{self.surface.unit}"
+
+    @property
+    def viewBox(self) -> str:
+        return f"0 0 {self.surface.width} {self.surface.height}"
+
+    @property
+    def default_meta(self) -> str:
+        return (
+            f'fill="{self.fill}" '
+            f'stroke="{self.stroke}" '
+            f'stroke-width="{self.stroke_width}"'
+        )
 
     def svg_points(self, points) -> str:
         return " ".join(f"{x:.4f},{y:.4f}" for x, y in points)
@@ -49,5 +68,8 @@ class SVG(Interpreter):
         return self.wrap(self.run(data))
 
     def write_to_file(self, path: str, data) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
         with open(path, "w", encoding="utf-8") as file:
             file.write(self.render(data))
