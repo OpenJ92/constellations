@@ -44,6 +44,7 @@ from constellations.geometry.rectangle import Rectangle
 from constellations.geometry.core import SegmentStrip
 
 from constellations.interpreters.svg import SVG
+from constellations.interpreters.png import PNG
 
 from constellations.paper.core import A0, A2, A0x2
 
@@ -112,7 +113,7 @@ def keyed_rng(seed=0, tag=""):
 # ================================
 
 lsystem_result = Reader(lambda env: 
-    Generate(lsystem, depth=14, seed=env.TOPOLOGY_SEED).run())
+    Generate(lsystem, depth=11, seed=env.TOPOLOGY_SEED).run())
 
 parsed_tree = Reader                                                      \
     |pure| (lambda result: parser.run(result)[0][0])                      \
@@ -509,27 +510,37 @@ def env_filename(env, prefix="signal_bloom", suffix="svg"):
     return f"{prefix}__{env_signature(env)}.{suffix}"
 
 
-def write_env_sidecar(env, svg_path):
+def write_env_sidecar(env, json_path):
     payload = env_payload(env)
     payload["signature"] = env_signature(env)
 
-    json_path = Path(svg_path).with_suffix(".json")
+    with open(json_path, "w") as file:
+        json.dump(payload, file, indent=2, sort_keys=True)
 
-    with open(json_path, "w") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
+frame = evaluate(frame)
 
-    return json_path
+signature = env_signature(env)
+stem = f"signal_bloom__{signature}"
 
-svg_path = (
-    "src/constellations/compositions/signal_bloom/renders/svg/"
-    f"{env_filename(env)}"
-)
+render_root = Path("src/constellations/compositions/signal_bloom/renders")
 
-SVG().write_to_file(
+svg_path  = render_root / "svg"  / f"{stem}.svg"
+png_path  = render_root / "png"  / f"{stem}.png"
+json_path = render_root / "json" / f"{stem}.json"
+
+for path in (svg_path, png_path, json_path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+SVG(A0x2).write_to_file(
     svg_path,
-    evaluate(frame),
+    frame
 )
 
-write_env_sidecar(env, svg_path)
+PNG(A0x2, pixels_per_unit=2, background=(245, 238, 220, 255)).write_to_file(
+    png_path,
+    frame
+)
+
+write_env_sidecar(env, json_path)
 
 print("write:", time.time())
